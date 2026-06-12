@@ -204,6 +204,7 @@
                         const pathsNW = { baseline: [], vanguard: [], guyton: [] };
                         const pathsW = { baseline: [], vanguard: [], guyton: [] };
                         const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
+                        const pathsMR = []; // 新增：用來記錄每個宇宙的市場報酬路徑
                         
                         let totals = {
                             baseline: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0 },
@@ -417,6 +418,7 @@
                             totals.guyton.totalWithdrawn.push(totWGk);
                             pathsNW.guyton.push(pathNWGk);
                             pathsW.guyton.push(pathWGk);
+                            pathsMR.push(marketReturns); // 新增：將該宇宙的市場報酬存入陣列
                         }
 
                         const chartDataNW = [];
@@ -440,27 +442,63 @@
                             const nwAtT = { year: t };
                             const wAtT = { year: t };
                             
-                            // 將三種策略在「同一個 P50 市場宇宙」的數據提取出來繪圖
                             ['baseline', 'vanguard', 'guyton'].forEach(strat => {
                                 nwAtT[strat] = pathsNW[strat][medianUniverseIdx][t];
                                 if (t < years) wAtT[strat] = pathsW[strat][medianUniverseIdx][t];
                             });
                             
+                            // 新增：提取典型宇宙的當年市場報酬率供長條圖使用
+                            if (t < years) {
+                                nwAtT.marketReturn = pathsMR[medianUniverseIdx][t] * 100;
+                                wAtT.marketReturn = pathsMR[medianUniverseIdx][t] * 100;
+                            } else {
+                                nwAtT.marketReturn = 0;
+                            }
+                            
                             chartDataNW.push(nwAtT);
                             if (t < years) chartDataW.push(wAtT);
+                        }
+
+                        // 計算固定的通膨因子，供後續實質變異係數 (CV) 計算使用
+                        const staticInflFactors = [];
+                        let curInf = 1;
+                        for (let t = 0; t < years; t++) {
+                            curInf *= (1 + (inflation / 100));
+                            staticInflFactors.push(curInf);
                         }
 
                         const stats = {};
                         ['baseline', 'vanguard', 'guyton'].forEach(strat => {
                             const finalNWs = totals[strat].finalNW.sort((a,b)=>a-b);
                             const totWs = totals[strat].totalWithdrawn.sort((a,b)=>a-b);
+                            
+                            // 計算各宇宙的「實質提領變異係數」 (CV = 實質標準差 / 實質平均值)
+                            const cvs = [];
+                            for (let i = 0; i < simCount; i++) {
+                                const wPath = pathsW[strat][i];
+                                // 將名目提領額還原為實質購買力，以計算真實的生活波動
+                                const realWPath = wPath.map((w, t) => w / (t === 0 ? 1 : staticInflFactors[t-1]));
+                                
+                                const mean = realWPath.reduce((a, b) => a + b, 0) / years;
+                                if (mean > 0) {
+                                    const variance = realWPath.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / years;
+                                    const stdDev = Math.sqrt(variance);
+                                    cvs.push((stdDev / mean) * 100);
+                                } else {
+                                    cvs.push(0);
+                                }
+                            }
+                            cvs.sort((a, b) => a - b);
+                            const medianCV = cvs[Math.floor(simCount * 0.5)];
+
                             stats[strat] = {
                                 successRate: ((simCount - totals[strat].dead) / simCount) * 100,
                                 p10NW: finalNWs[Math.floor(simCount * 0.1)],
                                 p50NW: finalNWs[Math.floor(simCount * 0.5)],
                                 p90NW: finalNWs[Math.floor(simCount * 0.9)],
                                 avgWithdrawn: totWs.reduce((a,b)=>a+b,0) / simCount,
-                                qolRate: 100 - ((totals[strat].downgradedYears / (simCount * years)) * 100)
+                                qolRate: 100 - ((totals[strat].downgradedYears / (simCount * years)) * 100),
+                                cvWithdrawn: medianCV
                             };
                         });
 
@@ -494,21 +532,33 @@
                 return (
                     <div className="h-[400px] w-full mt-4">
                         <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                            {/* 修正：將 LineChart 改為 ComposedChart 以支援長條圖 */}
+                            <ComposedChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis dataKey="year" label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -10, fontSize: 12, fill: '#64748b' }} stroke="#cbd5e1" tick={{fontSize: 12, fill: '#64748b'}} tickMargin={10} />
                                 <YAxis 
+                                    yAxisId="left"
                                     stroke="#cbd5e1" 
                                     tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} 
                                     label={{ value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 0, style: { textAnchor: 'middle', fontSize: 12, fill: '#64748b', fontWeight: 'bold' } }} 
                                     domain={viewMode === 'survival' ? [0, 100] : ['auto', 'auto']}
                                     tick={{fontSize: 12, fill: '#64748b'}}
                                 />
+                                {/* 新增：若是存活率模式就不顯示右軸 (市場報酬) */}
+                                {viewMode !== 'survival' && (
+                                    <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 10, fill: '#cbd5e1'}} domain={['auto', 'auto']} />
+                                )}
                                 <RechartsTooltip content={<CustomTooltip />} />
                                 <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '12px', fontWeight: 'bold', color: '#475569' }}/>
                                 
+                                {/* 新增：背景市場報酬長條圖 */}
+                                {viewMode !== 'survival' && (
+                                    <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
+                                )}
+
                                 {strategiesDef.map(s => (
                                     <Line 
+                                        yAxisId="left"
                                         key={`main_${s.id}`} 
                                         type="monotone" 
                                         dataKey={s.id} 
@@ -521,9 +571,9 @@
                                     />
                                 ))}
                                 
-                                {viewMode === 'survival' && <ReferenceLine y={100} stroke="#e2e8f0" strokeDasharray="3 3" />}
-                                {viewMode !== 'survival' && <ReferenceLine y={0} stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" />}
-                            </LineChart>
+                                {viewMode === 'survival' && <ReferenceLine yAxisId="left" y={100} stroke="#e2e8f0" strokeDasharray="3 3" />}
+                                {viewMode !== 'survival' && <ReferenceLine yAxisId="left" y={0} stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" />}
+                            </ComposedChart>
                         </ResponsiveContainer>
                     </div>
                 );
@@ -877,7 +927,7 @@
 
                                         <div className="overflow-x-auto custom-scroll">
                                             <table className="w-full text-sm text-left whitespace-nowrap">
-                                                <thead className="text-xs font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200">
+                                                <thead className="text-xs font-extrabold text-slate-500 bg-slate-50 border-b border-slate-100">
                                                     <tr>
                                                         <th className="px-5 py-3">策略</th>
                                                         <th className="px-5 py-3 text-right text-emerald-700 bg-emerald-50/50">存活率</th>
@@ -885,7 +935,10 @@
                                                             <div>預期生活品質佔比</div>
                                                             <div className="text-[9px] font-normal text-blue-600/70 mt-0.5">(維持或超越首年購買力)</div>
                                                         </th>
-                                                        {/* 表格顏色修正：統一為乾淨的灰色 */}
+                                                        <th className="px-5 py-3 text-right text-amber-700 bg-amber-50/50">
+                                                            <div>提領變異係數 (CV)</div>
+                                                            <div className="text-[9px] font-normal text-amber-600/70 mt-0.5">(越低越穩，生活費不亂跳)</div>
+                                                        </th>
                                                         <th className="px-5 py-3 text-right text-slate-600">生涯總提領均值</th>
                                                         <th className="px-5 py-3 text-right text-slate-600">樂觀期末(P90)</th>
                                                         <th className="px-5 py-3 text-right text-slate-600">中位期末(P50)</th>
@@ -907,7 +960,9 @@
                                                                 <td className="px-5 py-4 text-right font-mono font-bold text-blue-700 bg-blue-50/30">
                                                                     {stat.qolRate.toFixed(1)}%
                                                                 </td>
-                                                                {/* 表格顏色修正：統一文字顏色 */}
+                                                                <td className="px-5 py-4 text-right font-mono font-bold text-amber-700 bg-amber-50/30">
+                                                                    {stat.cvWithdrawn.toFixed(1)}%
+                                                                </td>
                                                                 <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
                                                                 <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.p90NW).toLocaleString()} 萬</td>
                                                                 <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.p50NW).toLocaleString()} 萬</td>
