@@ -83,7 +83,7 @@
         ];
 
         // --- UI Components ---
-        const InputSlider = memo(({ label, value, setter, min, max, step, suffix, info }) => {
+        const InputSlider = memo(({ label, value, setter, min, max, step, suffix }) => {
             const [inputValue, setInputValue] = useState(value);
             useEffect(() => setInputValue(value), [value]);
             
@@ -96,14 +96,10 @@
                 setInputValue(num);
             };
 
-            // 確保組件填滿高度，並將 Slider 壓在底部對齊
             return (
                 <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 flex flex-col h-full">
                     <div className="flex justify-between items-start gap-2 mb-3">
-                        <label 
-                            className="text-xs font-bold text-slate-700 leading-snug flex-1 min-w-0 break-words line-clamp-2 cursor-help"
-                            title={info}
-                        >
+                        <label className="text-xs font-bold text-slate-700 leading-snug flex-1 min-w-0 break-words line-clamp-2">
                             {label}
                         </label>
                         <div className="flex items-center bg-white rounded border border-slate-300 shadow-sm px-1.5 py-0.5 shrink-0">
@@ -130,15 +126,13 @@
 
         const CustomTooltip = ({ active, payload, label }) => {
             if (active && payload && payload.length) {
-                const filteredPayload = payload.filter(entry => !String(entry.dataKey).includes('_bg_'));
-
                 return (
                     <div className="bg-white/95 backdrop-blur p-3 border border-slate-200 shadow-xl rounded-xl text-xs z-50 min-w-[180px]">
                         <p className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-1 flex justify-between">
                             <span>退休第 {label} 年</span>
                         </p>
                         <div className="space-y-2">
-                            {filteredPayload.map((entry, index) => {
+                            {payload.map((entry, index) => {
                                 let val = entry.value;
                                 if (typeof val !== 'number') return null; 
                                 
@@ -165,6 +159,7 @@
         };
 
         const App = () => {
+            // UI State
             const [activeTab, setActiveTab] = useState('monteCarlo'); 
             const [auditStrategy, setAuditStrategy] = useState('guyton');
             const [simSeed, setSimSeed] = useState(0); 
@@ -204,7 +199,7 @@
                         const pathsNW = { baseline: [], vanguard: [], guyton: [] };
                         const pathsW = { baseline: [], vanguard: [], guyton: [] };
                         const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
-                        const pathsMR = []; // 新增：用來記錄每個宇宙的市場報酬路徑
+                        const pathsMR = []; // 記錄市場報酬軌跡
                         
                         let totals = {
                             baseline: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0 },
@@ -213,19 +208,19 @@
                         };
 
                         const auditData = [];
-                        const universePerformances = []; // 用於記錄每個宇宙的市場年化績效
+                        const universePerformances = []; 
 
                         for (let i = 0; i < simCount; i++) {
                             const marketReturns = [];
                             const inflFactors = []; 
                             let currentInflFactor = 1;
-                            let pathMarketReturn = 1; // 記錄這個宇宙整體的市場報酬
+                            let pathMarketReturn = 1; 
                             
                             for (let t = 0; t < years; t++) {
                                 const Z = randn_bm();
                                 let r = (cagr / 100) + (volatility / 100) * Z;
                                 
-                                // SORR 壓力測試：強制前三年大跌
+                                // SORR 壓力測試
                                 if (sorrTest && t < 3) {
                                     r = -0.15;
                                 }
@@ -246,7 +241,6 @@
                                 }
                             }
                             
-                            // 將這個市場宇宙的總績效存起來，以便找出最接近中位數的代表宇宙
                             universePerformances.push({ idx: i, totalReturn: pathMarketReturn });
 
                             // --- 1. Baseline ---
@@ -312,7 +306,6 @@
                                     wVan = initialWithdrawal;
                                     currentVanNote = '初始提領';
                                 } else if (!deadVan) {
-                                    // Vanguard: 預期提領為當下資產*提領率。上下限嚴格依據【前一年實際提領(不加通膨)】
                                     const expectedW = nwVan * (initialWithdrawalRate / 100); 
                                     const prevActualW = pathWVan[t-1]; 
                                     const maxW = prevActualW * (1 + vanCeiling / 100); 
@@ -418,14 +411,13 @@
                             totals.guyton.totalWithdrawn.push(totWGk);
                             pathsNW.guyton.push(pathNWGk);
                             pathsW.guyton.push(pathWGk);
-                            pathsMR.push(marketReturns); // 新增：將該宇宙的市場報酬存入陣列
+                            pathsMR.push(marketReturns);
                         }
 
                         const chartDataNW = [];
                         const chartDataW = [];
                         const chartDataSurv = [];
 
-                        // 核心邏輯修正：改用「市場表現 (CAGR) 中位數」尋找最典型宇宙
                         universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
                         const medianUniverseIdx = universePerformances[Math.floor(simCount / 2)].idx;
 
@@ -447,7 +439,6 @@
                                 if (t < years) wAtT[strat] = pathsW[strat][medianUniverseIdx][t];
                             });
                             
-                            // 新增：提取典型宇宙的當年市場報酬率供長條圖使用
                             if (t < years) {
                                 nwAtT.marketReturn = pathsMR[medianUniverseIdx][t] * 100;
                                 wAtT.marketReturn = pathsMR[medianUniverseIdx][t] * 100;
@@ -459,7 +450,6 @@
                             if (t < years) chartDataW.push(wAtT);
                         }
 
-                        // 計算固定的通膨因子，供後續實質變異係數 (CV) 計算使用
                         const staticInflFactors = [];
                         let curInf = 1;
                         for (let t = 0; t < years; t++) {
@@ -472,11 +462,9 @@
                             const finalNWs = totals[strat].finalNW.sort((a,b)=>a-b);
                             const totWs = totals[strat].totalWithdrawn.sort((a,b)=>a-b);
                             
-                            // 計算各宇宙的「實質提領變異係數」 (CV = 實質標準差 / 實質平均值)
                             const cvs = [];
                             for (let i = 0; i < simCount; i++) {
                                 const wPath = pathsW[strat][i];
-                                // 將名目提領額還原為實質購買力，以計算真實的生活波動
                                 const realWPath = wPath.map((w, t) => w / (t === 0 ? 1 : staticInflFactors[t-1]));
                                 
                                 const mean = realWPath.reduce((a, b) => a + b, 0) / years;
@@ -532,7 +520,6 @@
                 return (
                     <div className="h-[400px] w-full mt-4">
                         <ResponsiveContainer width="100%" height="100%">
-                            {/* 修正：將 LineChart 改為 ComposedChart 以支援長條圖 */}
                             <ComposedChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis dataKey="year" label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -10, fontSize: 12, fill: '#64748b' }} stroke="#cbd5e1" tick={{fontSize: 12, fill: '#64748b'}} tickMargin={10} />
@@ -544,14 +531,12 @@
                                     domain={viewMode === 'survival' ? [0, 100] : ['auto', 'auto']}
                                     tick={{fontSize: 12, fill: '#64748b'}}
                                 />
-                                {/* 新增：若是存活率模式就不顯示右軸 (市場報酬) */}
                                 {viewMode !== 'survival' && (
                                     <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 10, fill: '#cbd5e1'}} domain={['auto', 'auto']} />
                                 )}
                                 <RechartsTooltip content={<CustomTooltip />} />
                                 <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '12px', fontWeight: 'bold', color: '#475569' }}/>
                                 
-                                {/* 新增：背景市場報酬長條圖 */}
                                 {viewMode !== 'survival' && (
                                     <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
                                 )}
@@ -666,7 +651,6 @@
                                     ))}
                                 </div>
                             </div>
-                            {/* 說明文字排版修正：加入 items-center 與 m-auto 確保高低置中 */}
                             <div className="flex items-center gap-3 text-xs bg-white border border-slate-200 p-4 rounded-xl shadow-sm w-full min-h-[4.5rem]">
                                 <div className="p-1.5 rounded-md shrink-0" style={{ backgroundColor: `${stratInfo.color}15`, color: stratInfo.color }}>{stratInfo.icon}</div>
                                 <span className="text-slate-600 leading-relaxed whitespace-normal break-words m-auto w-full">{stratInfo.desc}</span>
@@ -979,8 +963,7 @@
                                         <div className="flex justify-between items-center mb-4">
                                             <h2 className="text-lg font-extrabold text-slate-800">
                                                 資產與提領趨勢 
-                                                {/* 移除了問號 emoji 與 HelpCircle 圖示 */}
-                                                <span className="text-sm font-medium text-slate-400 ml-2 cursor-help underline decoration-slate-300 underline-offset-4" title="將 1000 個宇宙的市場績效排序，挑選出市場表現落在正中間的「典型宇宙」，並觀察三種策略在相同市場漲跌下的表現差異">(典型宇宙 P50)</span>
+                                                <span className="text-sm font-medium text-slate-400 ml-2" title="將 1000 個宇宙的市場績效排序，挑選出市場表現落在正中間的「典型宇宙」，並觀察三種策略在相同市場漲跌下的表現差異">(典型宇宙 P50)</span>
                                             </h2>
                                             <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold shadow-inner">
                                                 <button onClick={() => setViewMode('netWorth')} className={`px-3 py-1.5 rounded-md transition-all ${viewMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>資產淨值</button>
