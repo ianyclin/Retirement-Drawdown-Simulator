@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>退休動態提領模擬器 v3.8</title>
+    <title>退休動態提領模擬器 v3.8 - 終極旗艦版</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -723,6 +723,12 @@
                     baseline: simResults?.stats?.baseline?.qolRate || 0,
                     vanguard: simResults?.stats?.vanguard?.qolRate || 0,
                     guyton: simResults?.stats?.guyton?.qolRate || 0,
+                },
+                {
+                    name: '提領變異係數',
+                    baseline: simResults?.stats?.baseline?.cvWithdrawn || 0,
+                    vanguard: simResults?.stats?.vanguard?.cvWithdrawn || 0,
+                    guyton: simResults?.stats?.guyton?.cvWithdrawn || 0,
                 }
             ];
 
@@ -732,7 +738,7 @@
                         <div>
                             <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-3">
                                 <Activity className="w-8 h-8 text-indigo-600" />
-                                退休動態提領模擬器 <span className="text-sm md:text-lg font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded ml-2 whitespace-nowrap">v3.8</span>
+                                退休動態提領模擬器 <span className="text-sm md:text-lg font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded ml-2 whitespace-nowrap">v3.8 終極旗艦版</span>
                             </h1>
                             <p className="text-slate-500 mt-2 font-medium text-sm">結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。</p>
                         </div>
@@ -910,23 +916,20 @@
                                         </div>
 
                                         <div className="overflow-x-auto custom-scroll">
-                                            <table className="w-full text-sm text-left whitespace-nowrap">
-                                                <thead className="text-xs font-extrabold text-slate-500 bg-slate-50 border-b border-slate-100">
+                                            <table className="w-full text-sm text-left whitespace-nowrap table-fixed">
+                                                <thead className="text-xs font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200">
                                                     <tr>
-                                                        <th className="px-5 py-3">策略</th>
-                                                        <th className="px-5 py-3 text-right text-emerald-700 bg-emerald-50/50">存活率</th>
-                                                        <th className="px-5 py-3 text-right text-blue-700 bg-blue-50/50">
+                                                        <th className="px-4 py-3 w-1/5">策略</th>
+                                                        <th className="px-4 py-3 text-right text-emerald-700 bg-emerald-50/50 w-1/5">存活率</th>
+                                                        <th className="px-4 py-3 text-right text-blue-700 bg-blue-50/50 w-1/5">
                                                             <div>預期生活品質佔比</div>
                                                             <div className="text-[9px] font-normal text-blue-600/70 mt-0.5">(維持或超越首年購買力)</div>
                                                         </th>
-                                                        <th className="px-5 py-3 text-right text-amber-700 bg-amber-50/50">
+                                                        <th className="px-4 py-3 text-right text-amber-700 bg-amber-50/50 w-1/5">
                                                             <div>提領變異係數 (CV)</div>
                                                             <div className="text-[9px] font-normal text-amber-600/70 mt-0.5">(越低越穩，生活費不亂跳)</div>
                                                         </th>
-                                                        <th className="px-5 py-3 text-right text-slate-600">生涯總提領均值</th>
-                                                        <th className="px-5 py-3 text-right text-slate-600">樂觀期末(P90)</th>
-                                                        <th className="px-5 py-3 text-right text-slate-600">中位期末(P50)</th>
-                                                        <th className="px-5 py-3 text-right text-slate-600">悲觀期末(P10)</th>
+                                                        <th className="px-4 py-3 text-right text-slate-600 w-1/5">生涯總提領均值</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100">
@@ -935,22 +938,19 @@
                                                         if (!stat) return null;
                                                         return (
                                                             <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
-                                                                <td className="px-5 py-4 font-bold flex items-center gap-2" style={{ color: s.color }}>
+                                                                <td className="px-4 py-4 font-bold flex items-center gap-2 truncate" style={{ color: s.color }}>
                                                                     {s.icon} {s.name.split(' ')[0]}
                                                                 </td>
-                                                                <td className="px-5 py-4 text-right font-mono font-bold text-emerald-700 bg-emerald-50/30">
+                                                                <td className="px-4 py-4 text-right font-mono font-bold text-emerald-700 bg-emerald-50/30 truncate">
                                                                     {stat.successRate.toFixed(1)}%
                                                                 </td>
-                                                                <td className="px-5 py-4 text-right font-mono font-bold text-blue-700 bg-blue-50/30">
+                                                                <td className="px-4 py-4 text-right font-mono font-bold text-blue-700 bg-blue-50/30 truncate">
                                                                     {stat.qolRate.toFixed(1)}%
                                                                 </td>
-                                                                <td className="px-5 py-4 text-right font-mono font-bold text-amber-700 bg-amber-50/30">
+                                                                <td className="px-4 py-4 text-right font-mono font-bold text-amber-700 bg-amber-50/30 truncate">
                                                                     {stat.cvWithdrawn.toFixed(1)}%
                                                                 </td>
-                                                                <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
-                                                                <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.p90NW).toLocaleString()} 萬</td>
-                                                                <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.p50NW).toLocaleString()} 萬</td>
-                                                                <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.p10NW).toLocaleString()} 萬</td>
+                                                                <td className="px-4 py-4 text-right font-mono text-slate-700 truncate">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
                                                             </tr>
                                                         );
                                                     })}
