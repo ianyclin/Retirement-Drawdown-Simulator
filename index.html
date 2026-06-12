@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>退休動態提領模擬器</title>
+    <title>退休動態提領模擬器 v3.8</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -30,17 +30,17 @@
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
-        .sticky-col { position: sticky; left: 0; background-color: #f8fafc; z-index: 10; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1); }
+        .sticky-col { position: sticky; left: 0; background-color: #ffffff; z-index: 10; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.05); }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useMemo, memo } from 'react';
+        import React, { useState, useEffect, memo } from 'react';
         import { createRoot } from 'react-dom/client';
         import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, BarChart } from 'recharts';
-        import { Settings, Activity, ShieldCheck, Info, Scale, BookOpen, TrendingUp, HelpCircle, ChevronDown, ChevronUp, RefreshCw, Maximize2, FileSearch, LineChart as ChartIcon, ExternalLink } from 'lucide-react';
+        import { Settings, Activity, ShieldCheck, Scale, BookOpen, TrendingUp, RefreshCw, Maximize2, FileSearch, LineChart as ChartIcon, ExternalLink } from 'lucide-react';
 
         // --- Math & Simulation Engine ---
         const randn_bm = () => {
@@ -61,7 +61,6 @@
                 ]
             },
             { 
-                // Vanguard 敘述修正
                 id: 'vanguard', name: 'Vanguard 動態護欄', color: '#0ea5e9', icon: <ShieldCheck size={16}/>, 
                 desc: '提領當下資產的固定比例，但設有變動「天花板」與「地板」，上下限基準為【前一年的實際提領額】。',
                 calcSteps: [
@@ -84,7 +83,7 @@
         ];
 
         // --- UI Components ---
-        const InputSlider = memo(({ label, value, setter, min, max, step, suffix, info, highlight, color = 'indigo' }) => {
+        const InputSlider = memo(({ label, value, setter, min, max, step, suffix, info }) => {
             const [inputValue, setInputValue] = useState(value);
             useEffect(() => setInputValue(value), [value]);
             
@@ -97,37 +96,34 @@
                 setInputValue(num);
             };
 
-            const bgColors = {
-                indigo: highlight ? 'bg-indigo-50/50 border-indigo-100' : 'bg-slate-50/50 border-transparent',
-                sky: 'bg-sky-50/30 border-sky-100/50',
-                amber: 'bg-amber-50/30 border-amber-100/50',
-            };
-
+            // 確保組件填滿高度，並將 Slider 壓在底部對齊
             return (
-                <div className={`mb-3 p-3 rounded-lg border ${bgColors[color]}`}>
-                    {/* 排版修正：flex-wrap 與 leading-tight */}
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2 mb-1">
-                        <label className="text-xs font-bold text-slate-700 flex flex-wrap items-center gap-1.5 leading-tight">
-                            {label} 
-                            {/* 工具提示修正：加入 onClick */}
-                            {info && <span title={info} onClick={() => alert(info)} className={`cursor-help text-${color}-400 hover:text-${color}-600 active:scale-95 transition-transform`}><HelpCircle size={14}/></span>}
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 flex flex-col h-full">
+                    <div className="flex justify-between items-start gap-2 mb-3">
+                        <label 
+                            className="text-xs font-bold text-slate-700 leading-snug flex-1 min-w-0 break-words line-clamp-2 cursor-help"
+                            title={info}
+                        >
+                            {label}
                         </label>
-                        <div className="flex items-center bg-white rounded px-1.5 py-0.5 border border-slate-300 shadow-sm shrink-0">
+                        <div className="flex items-center bg-white rounded border border-slate-300 shadow-sm px-1.5 py-0.5 shrink-0">
                             <input 
                                 type="number" step={step} value={inputValue} 
                                 onChange={(e) => setInputValue(e.target.value)} 
                                 onBlur={handleBlur}
                                 onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
-                                className="w-16 text-xs font-mono text-right bg-transparent outline-none p-0 appearance-none font-bold text-slate-700"
+                                className="w-12 text-xs font-mono text-right bg-transparent outline-none p-0 appearance-none font-bold text-slate-700"
                             />
-                            <span className="text-xs text-slate-500 pl-1">{suffix}</span>
+                            <span className="text-[10px] text-slate-500 pl-1">{suffix}</span>
                         </div>
                     </div>
-                    <input
-                        type="range" min={min} max={max} step={step} value={value}
-                        onChange={(e) => setter(Number(e.target.value))}
-                        className={`w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer mt-2 accent-${color}-500`}
-                    />
+                    <div className="mt-auto">
+                        <input
+                            type="range" min={min} max={max} step={step} value={value}
+                            onChange={(e) => setter(Number(e.target.value))}
+                            className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                        />
+                    </div>
                 </div>
             );
         });
@@ -169,7 +165,6 @@
         };
 
         const App = () => {
-            // UI State
             const [activeTab, setActiveTab] = useState('monteCarlo'); 
             const [auditStrategy, setAuditStrategy] = useState('guyton');
             const [simSeed, setSimSeed] = useState(0); 
@@ -217,22 +212,25 @@
                         };
 
                         const auditData = [];
+                        const universePerformances = []; // 用於記錄每個宇宙的市場年化績效
 
                         for (let i = 0; i < simCount; i++) {
                             const marketReturns = [];
                             const inflFactors = []; 
                             let currentInflFactor = 1;
+                            let pathMarketReturn = 1; // 記錄這個宇宙整體的市場報酬
                             
                             for (let t = 0; t < years; t++) {
                                 const Z = randn_bm();
                                 let r = (cagr / 100) + (volatility / 100) * Z;
                                 
-                                // 若開啟 SORR 壓力測試，強制前三年報酬率為 -15%
+                                // SORR 壓力測試：強制前三年大跌
                                 if (sorrTest && t < 3) {
                                     r = -0.15;
                                 }
 
                                 marketReturns.push(r);
+                                pathMarketReturn *= (1 + r);
                                 
                                 currentInflFactor *= (1 + (inflation / 100));
                                 inflFactors.push(currentInflFactor);
@@ -246,6 +244,9 @@
                                     });
                                 }
                             }
+                            
+                            // 將這個市場宇宙的總績效存起來，以便找出最接近中位數的代表宇宙
+                            universePerformances.push({ idx: i, totalReturn: pathMarketReturn });
 
                             // --- 1. Baseline ---
                             let nwBase = initialCapital;
@@ -295,7 +296,7 @@
                             pathsNW.baseline.push(pathNWBase);
                             pathsW.baseline.push(pathWBase);
 
-                            // --- 2. Vanguard Dynamic Approach (修正邏輯) ---
+                            // --- 2. Vanguard Dynamic Approach ---
                             let nwVan = initialCapital;
                             let wVan = 0;
                             let deadVan = false;
@@ -310,7 +311,7 @@
                                     wVan = initialWithdrawal;
                                     currentVanNote = '初始提領';
                                 } else if (!deadVan) {
-                                    // Vanguard: 目標提領為當下資產*提領率。上下限依據【前一年實際提領(不加通膨)】
+                                    // Vanguard: 預期提領為當下資產*提領率。上下限嚴格依據【前一年實際提領(不加通膨)】
                                     const expectedW = nwVan * (initialWithdrawalRate / 100); 
                                     const prevActualW = pathWVan[t-1]; 
                                     const maxW = prevActualW * (1 + vanCeiling / 100); 
@@ -354,7 +355,7 @@
                             pathsNW.vanguard.push(pathNWVan);
                             pathsW.vanguard.push(pathWVan);
 
-                            // --- 3. Guyton-Klinger Rule (修正邏輯) ---
+                            // --- 3. Guyton-Klinger Rule ---
                             let nwGk = initialCapital;
                             let wGk = 0;
                             let deadGk = false;
@@ -422,10 +423,9 @@
                         const chartDataW = [];
                         const chartDataSurv = [];
 
-                        // 修正：P50 圖表改為找出「傳統 4% 法則期末排正中間」的單一典型宇宙，
-                        // 在同一個平行宇宙下比較三種策略，這樣才有意義。
-                        const baselineFinals = pathsNW.baseline.map((path, idx) => ({ nw: path[years], idx })).sort((a, b) => a.nw - b.nw);
-                        const medianUniverseIdx = baselineFinals[Math.floor(simCount / 2)].idx;
+                        // 核心邏輯修正：改用「市場表現 (CAGR) 中位數」尋找最典型宇宙
+                        universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
+                        const medianUniverseIdx = universePerformances[Math.floor(simCount / 2)].idx;
 
                         for (let t = 0; t <= years; t++) {
                             survivals.baseline[0] = simCount; survivals.vanguard[0] = simCount; survivals.guyton[0] = simCount;
@@ -440,6 +440,7 @@
                             const nwAtT = { year: t };
                             const wAtT = { year: t };
                             
+                            // 將三種策略在「同一個 P50 市場宇宙」的數據提取出來繪圖
                             ['baseline', 'vanguard', 'guyton'].forEach(strat => {
                                 nwAtT[strat] = pathsNW[strat][medianUniverseIdx][t];
                                 if (t < years) wAtT[strat] = pathsW[strat][medianUniverseIdx][t];
@@ -600,7 +601,6 @@
                             </div>
                         </div>
                         
-                        {/* 修正：說明文字預設高度與自然換行，確保不擠壓按鈕 */}
                         <div className="px-6 py-4 bg-slate-50/50 flex flex-col md:flex-row gap-4 shrink-0 border-b border-slate-200">
                             <div className="flex items-start gap-2 shrink-0">
                                 <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm flex-col gap-1">
@@ -616,22 +616,23 @@
                                     ))}
                                 </div>
                             </div>
-                            <div className="flex items-start gap-3 text-xs bg-white border border-slate-200 p-4 rounded-lg shadow-sm w-full min-h-[4.5rem]">
-                                <div className="p-1.5 rounded-md shrink-0 mt-0.5" style={{ backgroundColor: `${stratInfo.color}15`, color: stratInfo.color }}>{stratInfo.icon}</div>
-                                <span className="text-slate-600 leading-relaxed whitespace-normal break-words">{stratInfo.desc}</span>
+                            {/* 說明文字排版修正：加入 items-center 與 m-auto 確保高低置中 */}
+                            <div className="flex items-center gap-3 text-xs bg-white border border-slate-200 p-4 rounded-xl shadow-sm w-full min-h-[4.5rem]">
+                                <div className="p-1.5 rounded-md shrink-0" style={{ backgroundColor: `${stratInfo.color}15`, color: stratInfo.color }}>{stratInfo.icon}</div>
+                                <span className="text-slate-600 leading-relaxed whitespace-normal break-words m-auto w-full">{stratInfo.desc}</span>
                             </div>
                         </div>
 
                         <div className="flex-1 overflow-auto custom-scroll relative">
-                            <table className="w-full text-sm text-left whitespace-nowrap">
-                                <thead className="text-xs font-extrabold text-slate-500 bg-white sticky top-0 z-10 shadow-sm border-b border-slate-200">
+                            <table className="w-full text-sm text-left whitespace-nowrap bg-white">
+                                <thead className="text-xs font-extrabold text-slate-500 bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
                                     <tr>
                                         <th className="px-4 py-3 sticky-col text-center w-16">年次</th>
                                         <th className="px-4 py-3 text-right">當年市場報酬</th>
                                         <th className="px-4 py-3 text-right">累積通膨倍數</th>
-                                        <th className="px-4 py-3 text-right border-l border-slate-200 bg-slate-50/50">實領生活費</th>
-                                        <th className="px-4 py-3 text-right">期末淨值</th>
-                                        <th className="px-4 py-3 text-left w-1/3">策略觸發狀態備註</th>
+                                        <th className="px-4 py-3 text-right border-l border-slate-200 bg-white">實領生活費</th>
+                                        <th className="px-4 py-3 text-right bg-white">期末淨值</th>
+                                        <th className="px-4 py-3 text-left w-1/3 bg-white">【{stratInfo.name.split(' ')[0]}】觸發狀態備註</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -661,7 +662,6 @@
                                                         sData.note.includes('🔴') || sData.note.includes('耗盡') ? 'bg-rose-100 text-rose-700' :
                                                         sData.note.includes('🟢') || sData.note.includes('加薪') ? 'bg-emerald-100 text-emerald-700' :
                                                         sData.note.includes('❄️') ? 'bg-sky-100 text-sky-700' :
-                                                        sData.note.includes('⚠️') ? 'bg-amber-100 text-amber-800' :
                                                         'bg-slate-100 text-slate-600'
                                                     }`}>
                                                         {sData.note}
@@ -677,7 +677,6 @@
                 );
             };
 
-            // 修正直條圖資料分組
             const barChartData = [
                 {
                     name: '資金存活率',
@@ -699,13 +698,13 @@
                         <div>
                             <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-3">
                                 <Activity className="w-8 h-8 text-indigo-600" />
-                                退休動態提領模擬器 <span className="text-lg font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded ml-2">v3.7 終極精確版</span>
+                                退休動態提領模擬器 <span className="text-sm md:text-lg font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded ml-2 whitespace-nowrap">v3.8</span>
                             </h1>
                             <p className="text-slate-500 mt-2 font-medium text-sm">結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。</p>
                         </div>
                         <button 
                             onClick={() => setShowDefinitions(!showDefinitions)}
-                            className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm"
+                            className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm shrink-0"
                         >
                             <BookOpen size={18} /> 
                             {showDefinitions ? '隱藏計算原理' : '📖 展開策略計算原理'}
@@ -740,19 +739,19 @@
                                 <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
                                     <Settings className="w-4 h-4 text-slate-500"/> 市場模擬參數與資產
                                 </h3>
-                                <InputSlider label="退休初始資產" value={initialCapital} setter={setInitialCapital} min={1000} max={20000} step={500} suffix="萬" highlight={true} color="indigo" />
-                                <InputSlider label="初始提領率 (首年)" value={initialWithdrawalRate} setter={setInitialWithdrawalRate} min={2.0} max={8.0} step={0.1} suffix="%" color="indigo" />
-                                
-                                <div className="grid grid-cols-2 gap-3 mt-4">
+                                <div className="grid grid-cols-1 gap-3">
+                                    <InputSlider label="退休初始資產" value={initialCapital} setter={setInitialCapital} min={1000} max={20000} step={500} suffix="萬" highlight={true} color="indigo" />
+                                    <InputSlider label="初始提領率 (首年)" value={initialWithdrawalRate} setter={setInitialWithdrawalRate} min={2.0} max={8.0} step={0.1} suffix="%" color="indigo" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 mt-3">
                                     <InputSlider label="預期年化報酬" value={cagr} setter={setCagr} min={0} max={15} step={0.5} suffix="%" color="indigo" />
                                     <InputSlider label="投資組合波動率" value={volatility} setter={setVolatility} min={5} max={30} step={1} suffix="%" color="indigo" />
                                 </div>
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-2 gap-3 mt-3">
                                     <InputSlider label="平均通膨率" value={inflation} setter={setInflation} min={0} max={10} step={0.5} suffix="%" color="indigo" />
                                     <InputSlider label="模擬年限" value={years} setter={setYears} min={10} max={50} step={5} suffix="年" color="indigo" />
                                 </div>
 
-                                {/* 修正：SORR 壓力測試按鈕 */}
                                 <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
                                     <div className="flex flex-col">
                                         <span className="text-sm font-bold text-rose-600 flex items-center gap-1"><TrendingUp size={14} className="rotate-180"/> 壓力測試：報酬順序風險</span>
@@ -822,7 +821,6 @@
                                             <p className="text-[11px] text-slate-500 mb-4">動態提領的本質，就是用「犧牲部分年份的購買力(生活降級)」來換取「極高的資金存活率」的等價交換。</p>
                                             <div className="h-[250px] w-full">
                                                 <ResponsiveContainer width="100%" height="100%">
-                                                    {/* 修正：直條圖緊密靠攏 barGap 與 barCategoryGap */}
                                                     <BarChart data={barChartData} margin={{ top: 20, right: 10, left: -20, bottom: 0 }} barGap={2} barCategoryGap="15%">
                                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                                         <XAxis dataKey="name" tick={{fontSize: 12, fill: '#64748b', fontWeight: 'bold'}} axisLine={false} tickLine={false} />
@@ -887,10 +885,11 @@
                                                             <div>預期生活品質佔比</div>
                                                             <div className="text-[9px] font-normal text-blue-600/70 mt-0.5">(維持或超越首年購買力)</div>
                                                         </th>
-                                                        <th className="px-5 py-3 text-right">生涯總提領均值</th>
-                                                        <th className="px-5 py-3 text-right text-indigo-500">樂觀期末(P90)</th>
-                                                        <th className="px-5 py-3 text-right text-indigo-700">中位期末(P50)</th>
-                                                        <th className="px-5 py-3 text-right text-rose-600">悲觀期末(P10)</th>
+                                                        {/* 表格顏色修正：統一為乾淨的灰色 */}
+                                                        <th className="px-5 py-3 text-right text-slate-600">生涯總提領均值</th>
+                                                        <th className="px-5 py-3 text-right text-slate-600">樂觀期末(P90)</th>
+                                                        <th className="px-5 py-3 text-right text-slate-600">中位期末(P50)</th>
+                                                        <th className="px-5 py-3 text-right text-slate-600">悲觀期末(P10)</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100">
@@ -908,10 +907,11 @@
                                                                 <td className="px-5 py-4 text-right font-mono font-bold text-blue-700 bg-blue-50/30">
                                                                     {stat.qolRate.toFixed(1)}%
                                                                 </td>
-                                                                <td className="px-5 py-4 text-right font-mono text-slate-600">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
-                                                                <td className="px-5 py-4 text-right font-mono text-indigo-400">{Math.round(stat.p90NW).toLocaleString()} 萬</td>
-                                                                <td className="px-5 py-4 text-right font-mono font-bold text-indigo-600">{Math.round(stat.p50NW).toLocaleString()} 萬</td>
-                                                                <td className="px-5 py-4 text-right font-mono text-rose-600">{Math.round(stat.p10NW).toLocaleString()} 萬</td>
+                                                                {/* 表格顏色修正：統一文字顏色 */}
+                                                                <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
+                                                                <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.p90NW).toLocaleString()} 萬</td>
+                                                                <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.p50NW).toLocaleString()} 萬</td>
+                                                                <td className="px-5 py-4 text-right font-mono text-slate-700">{Math.round(stat.p10NW).toLocaleString()} 萬</td>
                                                             </tr>
                                                         );
                                                     })}
@@ -924,8 +924,8 @@
                                         <div className="flex justify-between items-center mb-4">
                                             <h2 className="text-lg font-extrabold text-slate-800">
                                                 資產與提領趨勢 
-                                                {/* 修正：文案改為對 P50 單一宇宙的定義 */}
-                                                <span className="text-sm font-medium text-slate-400 ml-2 cursor-help" title="以「傳統4%法則」期末淨值中位數找出「最典型的單一市場宇宙」，並觀察三種策略在相同市場漲跌順序下的表現差異">(典型宇宙 P50) <HelpCircle size={14} className="inline mb-0.5"/></span>
+                                                {/* 移除了問號 emoji 與 HelpCircle 圖示 */}
+                                                <span className="text-sm font-medium text-slate-400 ml-2 cursor-help underline decoration-slate-300 underline-offset-4" title="將 1000 個宇宙的市場績效排序，挑選出市場表現落在正中間的「典型宇宙」，並觀察三種策略在相同市場漲跌下的表現差異">(典型宇宙 P50)</span>
                                             </h2>
                                             <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold shadow-inner">
                                                 <button onClick={() => setViewMode('netWorth')} className={`px-3 py-1.5 rounded-md transition-all ${viewMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>資產淨值</button>
