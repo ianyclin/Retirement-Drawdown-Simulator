@@ -747,7 +747,7 @@
                             className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm shrink-0"
                         >
                             <BookOpen size={18} /> 
-                            {showDefinitions ? '隱藏計算原理' : '📖 展開策略計算原理'}
+                            {showDefinitions ? '隱藏計算原理' : '展開策略計算原理'}
                         </button>
                     </header>
 
@@ -837,7 +837,7 @@
                                     onClick={() => setActiveTab('monteCarlo')} 
                                     className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'monteCarlo' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                                 >
-                                    <ChartIcon size={18} /> 蒙地卡羅報表 ({simCount}次)
+                                    <ChartIcon size={18} /> 蒙地卡羅報表
                                 </button>
                                 <button 
                                     onClick={() => setActiveTab('auditTrail')} 
