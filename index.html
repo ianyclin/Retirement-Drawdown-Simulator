@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>退休動態提領模擬器 v3.8</title>
+    <title>退休動態提領模擬器 v4.0</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -31,6 +31,7 @@
         .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
         .sticky-col { position: sticky; left: 0; background-color: #ffffff; z-index: 10; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.05); }
+        .sticky-col-header { position: sticky; left: 0; z-index: 20; }
     </style>
 </head>
 <body>
@@ -40,7 +41,7 @@
         import React, { useState, useEffect, memo } from 'react';
         import { createRoot } from 'react-dom/client';
         import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, BarChart } from 'recharts';
-        import { Settings, Activity, ShieldCheck, Scale, BookOpen, TrendingUp, RefreshCw, Maximize2, FileSearch, LineChart as ChartIcon, ExternalLink } from 'lucide-react';
+        import { Settings, Activity, ShieldCheck, Scale, BookOpen, TrendingUp, RefreshCw, Maximize2, FileSearch, LineChart as ChartIcon, ExternalLink, HelpCircle } from 'lucide-react';
 
         // --- Math & Simulation Engine ---
         const randn_bm = () => {
@@ -52,7 +53,7 @@
 
         const strategiesDef = [
             { 
-                id: 'baseline', name: '傳統 4% 法則 (固定購買力)', color: '#94a3b8', icon: <BookOpen size={16}/>, 
+                id: 'baseline', name: '傳統 4% 法則', color: '#94a3b8', icon: <BookOpen size={16}/>, 
                 desc: '無論市場漲跌，每年提取首年金額並跟隨通膨調升。生活費最穩，但在大跌時極易耗盡本金。',
                 calcSteps: [
                     '首年提領 = 初始資產 × 初始提領率',
@@ -74,7 +75,7 @@
                 id: 'guyton', name: 'Guyton-Klinger 法則', color: '#f59e0b', icon: <TrendingUp size={16}/>, 
                 desc: '負報酬凍結通膨；提領率飆高時強制限縮生活費(保本)，提領率過低時主動加薪(繁榮)。',
                 calcSteps: [
-                    '若當年市場負報酬，凍結通膨調整(次年提領=去年)',
+                    '若當年市場負報酬，凍結通膨調整',
                     '當下真實提領率 = 預期提領額 ÷ 當下資產餘額',
                     '[保本]: 負報酬 且 提領率 > 初始提領率×(1+保本閥值)，提領額削減 X%',
                     '[繁榮]: 正報酬 且 提領率 < 初始提領率×(1-繁榮閥值)，提領額增加 Y%'
@@ -83,7 +84,7 @@
         ];
 
         // --- UI Components ---
-        const InputSlider = memo(({ label, value, setter, min, max, step, suffix }) => {
+        const InputSlider = memo(({ label, value, setter, min, max, step, suffix, info }) => {
             const [inputValue, setInputValue] = useState(value);
             useEffect(() => setInputValue(value), [value]);
             
@@ -99,7 +100,11 @@
             return (
                 <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 flex flex-col h-full">
                     <div className="flex justify-between items-start gap-2 mb-3">
-                        <label className="text-xs font-bold text-slate-700 leading-snug flex-1 min-w-0 break-words line-clamp-2">
+                        <label 
+                            className="text-xs font-bold text-slate-700 leading-snug flex-1 min-w-0 break-words line-clamp-2 cursor-help relative group"
+                            title={info}
+                            onClick={() => info && alert(info)}
+                        >
                             {label}
                         </label>
                         <div className="flex items-center bg-white rounded border border-slate-300 shadow-sm px-1.5 py-0.5 shrink-0">
@@ -126,13 +131,15 @@
 
         const CustomTooltip = ({ active, payload, label }) => {
             if (active && payload && payload.length) {
+                const filteredPayload = payload.filter(entry => !String(entry.dataKey).includes('_bg_'));
+
                 return (
                     <div className="bg-white/95 backdrop-blur p-3 border border-slate-200 shadow-xl rounded-xl text-xs z-50 min-w-[180px]">
                         <p className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-1 flex justify-between">
                             <span>退休第 {label} 年</span>
                         </p>
                         <div className="space-y-2">
-                            {payload.map((entry, index) => {
+                            {filteredPayload.map((entry, index) => {
                                 let val = entry.value;
                                 if (typeof val !== 'number') return null; 
                                 
@@ -220,7 +227,6 @@
                                 const Z = randn_bm();
                                 let r = (cagr / 100) + (volatility / 100) * Z;
                                 
-                                // SORR 壓力測試
                                 if (sorrTest && t < 3) {
                                     r = -0.15;
                                 }
@@ -411,6 +417,8 @@
                             totals.guyton.totalWithdrawn.push(totWGk);
                             pathsNW.guyton.push(pathNWGk);
                             pathsW.guyton.push(pathWGk);
+                            
+                            // 儲存每個宇宙的市場軌跡
                             pathsMR.push(marketReturns);
                         }
 
@@ -450,6 +458,7 @@
                             if (t < years) chartDataW.push(wAtT);
                         }
 
+                        // 計算提領變異係數 (CV) - 使用實質購買力
                         const staticInflFactors = [];
                         let curInf = 1;
                         for (let t = 0; t < years; t++) {
@@ -518,24 +527,25 @@
                 }));
 
                 return (
-                    <div className="h-[400px] w-full mt-4">
+                    <div className="h-[300px] sm:h-[400px] w-full mt-4">
                         <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                            <ComposedChart data={data} margin={{ top: 20, right: 10, left: 10, bottom: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis dataKey="year" label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -10, fontSize: 12, fill: '#64748b' }} stroke="#cbd5e1" tick={{fontSize: 12, fill: '#64748b'}} tickMargin={10} />
+                                <XAxis dataKey="year" label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#64748b' }} stroke="#cbd5e1" tick={{fontSize: 11, fill: '#64748b'}} tickMargin={10} />
                                 <YAxis 
                                     yAxisId="left"
                                     stroke="#cbd5e1" 
                                     tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} 
-                                    label={{ value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 0, style: { textAnchor: 'middle', fontSize: 12, fill: '#64748b', fontWeight: 'bold' } }} 
+                                    label={{ value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 0, style: { textAnchor: 'middle', fontSize: 11, fill: '#64748b', fontWeight: 'bold' } }} 
                                     domain={viewMode === 'survival' ? [0, 100] : ['auto', 'auto']}
-                                    tick={{fontSize: 12, fill: '#64748b'}}
+                                    tick={{fontSize: 11, fill: '#64748b'}}
+                                    width={50}
                                 />
                                 {viewMode !== 'survival' && (
-                                    <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 10, fill: '#cbd5e1'}} domain={['auto', 'auto']} />
+                                    <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 10, fill: '#cbd5e1'}} domain={['auto', 'auto']} width={40} />
                                 )}
                                 <RechartsTooltip content={<CustomTooltip />} />
-                                <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '12px', fontWeight: 'bold', color: '#475569' }}/>
+                                <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', paddingTop: '10px' }}/>
                                 
                                 {viewMode !== 'survival' && (
                                     <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
@@ -584,18 +594,18 @@
                 }));
 
                 return (
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[750px] animate-in fade-in">
-                        <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0 rounded-t-2xl">
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-auto md:h-[750px] animate-in fade-in" style={{ maxHeight: '85vh' }}>
+                        <div className="bg-slate-50 px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0 rounded-t-2xl">
                             <div>
-                                <h3 className="font-extrabold text-slate-800 flex items-center gap-2">
-                                    <FileSearch size={18} className="text-indigo-600"/> 單一隨機路徑詳細稽核
+                                <h3 className="font-extrabold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
+                                    <FileSearch size={18} className="text-indigo-600 shrink-0"/> 單一隨機路徑詳細稽核
                                 </h3>
                                 <p className="text-xs text-slate-500 mt-1">抽出單一平行宇宙，觀察在同樣的市場崩盤或大漲下，三種策略的動態表現。</p>
                             </div>
                             <div className="flex items-center gap-3 w-full sm:w-auto">
                                 <button 
                                     onClick={() => setSimSeed(s => s + 1)}
-                                    className="flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition-colors whitespace-nowrap shadow-sm"
+                                    className="flex w-full items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition-colors whitespace-nowrap shadow-sm"
                                 >
                                     <RefreshCw size={14} className={isSimulating ? "animate-spin" : ""} /> 
                                     重抽平行宇宙
@@ -603,28 +613,52 @@
                             </div>
                         </div>
 
-                        <div className="p-4 border-b border-slate-100 shrink-0">
-                            <div className="flex justify-between items-center mb-2 px-2">
-                                <div className="text-sm font-bold text-slate-700">單一宇宙軌跡視覺化</div>
-                                <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold shadow-inner">
-                                    <button onClick={() => setAuditChartMode('netWorth')} className={`px-3 py-1 rounded-md transition-all ${auditChartMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>比較淨值</button>
-                                    <button onClick={() => setAuditChartMode('withdrawal')} className={`px-3 py-1 rounded-md transition-all ${auditChartMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>比較提領額</button>
+                        {/* 行動端優化：水平排列按鈕，防止擠壓下方表格空間 */}
+                        <div className="px-4 py-3 bg-slate-50/50 flex flex-col lg:flex-row gap-3 shrink-0 border-b border-slate-200">
+                            <div className="flex items-center gap-2 w-full lg:w-auto overflow-x-auto no-scrollbar shrink-0">
+                                <span className="text-xs font-bold text-slate-500 shrink-0 hidden sm:block">稽核對象：</span>
+                                <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm w-full sm:w-auto min-w-max">
+                                    {strategiesDef.map(s => (
+                                        <button 
+                                            key={s.id}
+                                            onClick={() => setAuditStrategy(s.id)}
+                                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex-1 sm:flex-none text-center whitespace-nowrap ${auditStrategy === s.id ? 'bg-indigo-50 shadow-sm ring-1 ring-indigo-100' : 'hover:bg-slate-50 text-slate-500'}`}
+                                            style={{ color: auditStrategy === s.id ? s.color : undefined }}
+                                        >
+                                            {s.name.split(' ')[0]}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
-                            <div className="h-[220px] w-full relative">
+                            <div className="flex items-center gap-2.5 text-xs bg-white border border-slate-200 px-3 py-2.5 rounded-lg shadow-sm w-full lg:flex-1">
+                                <div className="p-1.5 rounded-md shrink-0" style={{ backgroundColor: `${stratInfo.color}15`, color: stratInfo.color }}>{stratInfo.icon}</div>
+                                <span className="text-slate-600 leading-relaxed m-auto w-full">{stratInfo.desc}</span>
+                            </div>
+                        </div>
+
+                        <div className="p-4 border-b border-slate-100 shrink-0">
+                            <div className="flex justify-between items-center mb-2 px-1">
+                                <div className="text-sm font-bold text-slate-700 hidden sm:block">🌌 單一宇宙軌跡視覺化</div>
+                                <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold shadow-inner w-full sm:w-auto">
+                                    <button onClick={() => setAuditChartMode('netWorth')} className={`flex-1 sm:flex-none px-3 py-1 rounded-md transition-all ${auditChartMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>比較淨值</button>
+                                    <button onClick={() => setAuditChartMode('withdrawal')} className={`flex-1 sm:flex-none px-3 py-1 rounded-md transition-all ${auditChartMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>比較提領額</button>
+                                </div>
+                            </div>
+                            {/* 行動端優化：稍微縮減圖表高度，把空間還給下方表格 */}
+                            <div className="h-[180px] sm:h-[220px] w-full relative">
                                 {isSimulating && (
                                     <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-20 flex items-center justify-center">
                                         <Activity className="animate-pulse text-indigo-400" size={24} />
                                     </div>
                                 )}
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={auditChartData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
+                                    <ComposedChart data={auditChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                         <XAxis dataKey="year" tick={{fontSize: 10, fill: '#94a3b8'}} tickMargin={5} />
-                                        <YAxis yAxisId="left" type="number" tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} tick={{fontSize: 10, fill: '#64748b', fontWeight: 'bold'}} />
-                                        <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 10, fill: '#cbd5e1'}} domain={['auto', 'auto']} />
+                                        <YAxis yAxisId="left" type="number" tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} tick={{fontSize: 10, fill: '#64748b', fontWeight: 'bold'}} width={45} />
+                                        <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 10, fill: '#cbd5e1'}} domain={['auto', 'auto']} width={35} />
                                         <RechartsTooltip content={<CustomTooltip />} />
-                                        <Legend payload={legendPayload} verticalAlign="top" height={30} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}/>
+                                        <Legend payload={legendPayload} verticalAlign="top" height={30} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', paddingTop: '5px' }}/>
                                         
                                         <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
                                         
@@ -635,31 +669,11 @@
                                 </ResponsiveContainer>
                             </div>
                         </div>
-                        
-                        <div className="px-6 py-4 bg-slate-50/50 flex flex-col md:flex-row gap-4 shrink-0 border-b border-slate-200">
-                            <div className="flex items-start gap-2 shrink-0">
-                                <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm flex-col gap-1">
-                                    {strategiesDef.map(s => (
-                                        <button 
-                                            key={s.id}
-                                            onClick={() => setAuditStrategy(s.id)}
-                                            className={`px-4 py-2 rounded-md text-xs font-bold transition-all text-left ${auditStrategy === s.id ? 'bg-indigo-50 shadow-sm ring-1 ring-indigo-100' : 'hover:bg-slate-50 text-slate-500'}`}
-                                            style={{ color: auditStrategy === s.id ? s.color : undefined }}
-                                        >
-                                            {s.name.split(' ')[0]}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3 text-xs bg-white border border-slate-200 p-4 rounded-xl shadow-sm w-full min-h-[4.5rem]">
-                                <div className="p-1.5 rounded-md shrink-0" style={{ backgroundColor: `${stratInfo.color}15`, color: stratInfo.color }}>{stratInfo.icon}</div>
-                                <span className="text-slate-600 leading-relaxed whitespace-normal break-words m-auto w-full">{stratInfo.desc}</span>
-                            </div>
-                        </div>
 
-                        <div className="flex-1 overflow-auto custom-scroll relative">
-                            <table className="w-full text-sm text-left whitespace-nowrap bg-white">
-                                <thead className="text-xs font-extrabold text-slate-500 bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
+                        {/* 行動端優化：強制表格能左右滑動，不被壓縮 */}
+                        <div className="flex-1 overflow-auto custom-scroll relative bg-white rounded-b-2xl">
+                            <table className="w-full text-sm text-left whitespace-nowrap min-w-[700px]">
+                                <thead className="text-xs font-extrabold text-slate-500 bg-slate-50 sticky top-0 z-20 shadow-sm border-b border-slate-200">
                                     <tr>
                                         <th className="px-4 py-3 sticky-col text-center w-16">年次</th>
                                         <th className="px-4 py-3 text-right">當年市場報酬</th>
@@ -736,18 +750,22 @@
                 <div className="max-w-[1400px] mx-auto p-3 md:p-5 lg:p-6 pb-20">
                     <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
                         <div>
-                            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-3">
-                                <Activity className="w-8 h-8 text-indigo-600" />
-                                退休動態提領模擬器 <span className="text-sm md:text-lg font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded ml-2 whitespace-nowrap">v3.8</span>
+                            {/* 行動端優化：聰明換行 */}
+                            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex flex-wrap items-center gap-2">
+                                <Activity className="w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0" />
+                                <span>退休動態提領模擬器</span> 
+                                <span className="text-xs md:text-lg font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded whitespace-nowrap">v4.0</span>
                             </h1>
-                            <p className="text-slate-500 mt-2 font-medium text-sm">結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。</p>
+                            <p className="text-slate-500 mt-2 font-medium text-sm leading-relaxed">
+                                結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的<span className="whitespace-nowrap">壓力測試平台</span>。
+                            </p>
                         </div>
                         <button 
                             onClick={() => setShowDefinitions(!showDefinitions)}
-                            className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm shrink-0"
+                            className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm w-full md:w-auto shrink-0"
                         >
                             <BookOpen size={18} /> 
-                            {showDefinitions ? '隱藏計算原理' : '展開策略計算原理'}
+                            {showDefinitions ? '隱藏計算原理' : '📖 展開策略計算原理'}
                         </button>
                     </header>
 
@@ -837,13 +855,13 @@
                                     onClick={() => setActiveTab('monteCarlo')} 
                                     className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'monteCarlo' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                                 >
-                                    <ChartIcon size={18} /> 蒙地卡羅報表
+                                    <ChartIcon size={16} className="shrink-0" /> <span className="hidden sm:inline">📈 蒙地卡羅報表 ({simCount}次)</span><span className="sm:hidden">蒙地卡羅</span>
                                 </button>
                                 <button 
                                     onClick={() => setActiveTab('auditTrail')} 
                                     className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'auditTrail' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                                 >
-                                    <FileSearch size={18} /> 單一宇宙深度稽核
+                                    <FileSearch size={16} className="shrink-0" /> <span className="hidden sm:inline">🔍 單一宇宙深度稽核</span><span className="sm:hidden">單一宇宙稽核</span>
                                 </button>
                             </div>
 
@@ -853,18 +871,18 @@
                                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                                         <div className="bg-slate-50 px-5 py-4 border-b border-slate-200 flex justify-between items-center">
                                             <h3 className="font-extrabold text-slate-800 text-sm">壓力測試結算報告 (第 {years} 年)</h3>
-                                            <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded">總模擬數: {simCount}次</span>
+                                            <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded hidden sm:block">總模擬數: {simCount}次</span>
                                         </div>
                                         
-                                        <div className="p-5 border-b border-slate-100 bg-white">
-                                            <h4 className="text-sm font-bold text-slate-700 mb-1">生存率 vs 生活品質對比</h4>
-                                            <p className="text-[11px] text-slate-500 mb-4">動態提領的本質，就是用「犧牲部分年份的購買力(生活降級)」來換取「極高的資金存活率」的等價交換。</p>
+                                        <div className="p-4 sm:p-5 border-b border-slate-100 bg-white">
+                                            <h4 className="text-sm font-bold text-slate-700 mb-1 text-center sm:text-left">生存率 vs 生活品質對比</h4>
+                                            <p className="text-[11px] text-slate-500 mb-4 text-center sm:text-left">動態提領的本質，就是用「犧牲部分年份的購買力(生活降級)」來換取「極高的資金存活率」的等價交換。</p>
                                             <div className="h-[250px] w-full">
                                                 <ResponsiveContainer width="100%" height="100%">
                                                     <BarChart data={barChartData} margin={{ top: 20, right: 10, left: -20, bottom: 0 }} barGap={2} barCategoryGap="15%">
                                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                        <XAxis dataKey="name" tick={{fontSize: 12, fill: '#64748b', fontWeight: 'bold'}} axisLine={false} tickLine={false} />
-                                                        <YAxis tickFormatter={(val) => `${val}%`} tick={{fontSize: 11, fill: '#94a3b8'}} axisLine={false} tickLine={false} domain={[0, 100]} />
+                                                        <XAxis dataKey="name" tick={{fontSize: 11, fill: '#64748b', fontWeight: 'bold'}} axisLine={false} tickLine={false} />
+                                                        <YAxis tickFormatter={(val) => `${val}%`} tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} domain={[0, 100]} />
                                                         <RechartsTooltip 
                                                             cursor={{fill: '#f8fafc'}}
                                                             content={({active, payload}) => {
@@ -894,11 +912,12 @@
                                                         />
                                                         <Legend 
                                                             verticalAlign="top" 
+                                                            wrapperStyle={{ paddingBottom: '10px' }}
                                                             content={(props) => {
                                                                 return (
-                                                                    <div className="flex justify-center gap-4 mb-4">
+                                                                    <div className="flex flex-wrap justify-center gap-3 sm:gap-4 mb-4">
                                                                         {strategiesDef.map(s => (
-                                                                            <div key={s.id} className="flex items-center gap-1.5">
+                                                                            <div key={s.id} className="flex items-center gap-1.5 shrink-0">
                                                                                 <span className="w-3 h-3 rounded-full" style={{backgroundColor: s.color}}></span>
                                                                                 <span className="text-[11px] font-bold text-slate-600">{s.name.split(' ')[0]}</span>
                                                                             </div>
@@ -915,21 +934,22 @@
                                             </div>
                                         </div>
 
-                                        <div className="overflow-x-auto custom-scroll">
-                                            <table className="w-full text-sm text-center whitespace-nowrap table-fixed">
+                                        {/* 行動端優化：強制表格能左右滑動，不被壓縮 */}
+                                        <div className="overflow-x-auto custom-scroll w-full">
+                                            <table className="w-full text-sm text-center whitespace-nowrap min-w-[700px]">
                                                 <thead className="text-xs font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200">
                                                     <tr>
-                                                        <th className="px-4 py-3 text-center w-1/5">策略</th>
-                                                        <th className="px-4 py-3 text-center text-emerald-700 bg-emerald-50/50 w-1/5">存活率</th>
-                                                        <th className="px-4 py-3 text-center text-blue-700 bg-blue-50/50 w-1/5">
+                                                        <th className="px-4 py-3 sticky-col-header text-center bg-slate-50 border-r border-slate-100">策略</th>
+                                                        <th className="px-4 py-3 text-center text-emerald-700 bg-emerald-50/50">存活率</th>
+                                                        <th className="px-4 py-3 text-center text-blue-700 bg-blue-50/50">
                                                             <div>預期生活品質佔比</div>
                                                             <div className="text-[9px] font-normal text-blue-600/70 mt-0.5">(維持或超越首年購買力)</div>
                                                         </th>
-                                                        <th className="px-4 py-3 text-center text-amber-700 bg-amber-50/50 w-1/5">
+                                                        <th className="px-4 py-3 text-center text-amber-700 bg-amber-50/50">
                                                             <div>提領變異係數 (CV)</div>
                                                             <div className="text-[9px] font-normal text-amber-600/70 mt-0.5">(越低越穩，生活費不亂跳)</div>
                                                         </th>
-                                                        <th className="px-4 py-3 text-center text-slate-600 w-1/5">生涯總提領均值</th>
+                                                        <th className="px-4 py-3 text-center text-slate-600">生涯總提領均值</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100">
@@ -938,19 +958,19 @@
                                                         if (!stat) return null;
                                                         return (
                                                             <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
-                                                                <td className="px-4 py-4 font-bold flex items-center justify-center gap-2 truncate" style={{ color: s.color }}>
-                                                                    {s.icon} {s.name.split(' ')[0]}
+                                                                <td className="px-4 py-4 font-bold flex items-center justify-center gap-2 sticky-col border-r border-slate-100" style={{ color: s.color }}>
+                                                                    {s.icon} <span className="hidden sm:inline">{s.name.split(' ')[0]}</span><span className="sm:hidden">{s.id === 'guyton' ? 'Guyton' : s.name.split(' ')[0]}</span>
                                                                 </td>
-                                                                <td className="px-4 py-4 text-center font-mono font-bold text-emerald-700 bg-emerald-50/30 truncate">
+                                                                <td className="px-4 py-4 text-center font-mono font-bold text-emerald-700 bg-emerald-50/30">
                                                                     {stat.successRate.toFixed(1)}%
                                                                 </td>
-                                                                <td className="px-4 py-4 text-center font-mono font-bold text-blue-700 bg-blue-50/30 truncate">
+                                                                <td className="px-4 py-4 text-center font-mono font-bold text-blue-700 bg-blue-50/30">
                                                                     {stat.qolRate.toFixed(1)}%
                                                                 </td>
-                                                                <td className="px-4 py-4 text-center font-mono font-bold text-amber-700 bg-amber-50/30 truncate">
+                                                                <td className="px-4 py-4 text-center font-mono font-bold text-amber-700 bg-amber-50/30">
                                                                     {stat.cvWithdrawn.toFixed(1)}%
                                                                 </td>
-                                                                <td className="px-4 py-4 text-center font-mono text-slate-700 truncate">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
+                                                                <td className="px-4 py-4 text-center font-mono text-slate-700">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
                                                             </tr>
                                                         );
                                                     })}
@@ -959,21 +979,21 @@
                                         </div>
                                     </div>
 
-                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <h2 className="text-lg font-extrabold text-slate-800">
+                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-5">
+                                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+                                            <h2 className="text-base sm:text-lg font-extrabold text-slate-800 flex items-center gap-2">
                                                 資產與提領趨勢 
-                                                <span className="text-sm font-medium text-slate-400 ml-2" title="將 1000 個宇宙的市場績效排序，挑選出市場表現落在正中間的「典型宇宙」，並觀察三種策略在相同市場漲跌下的表現差異">(典型宇宙 P50)</span>
+                                                <span className="text-xs font-medium text-slate-400 cursor-help underline decoration-slate-300 underline-offset-4" onClick={() => alert("將 1000 個宇宙的市場績效排序，挑選出市場表現落在正中間的「典型宇宙」，並觀察三種策略在相同市場漲跌下的表現差異")}>(典型宇宙 P50)</span>
                                             </h2>
-                                            <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold shadow-inner">
-                                                <button onClick={() => setViewMode('netWorth')} className={`px-3 py-1.5 rounded-md transition-all ${viewMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>資產淨值</button>
-                                                <button onClick={() => setViewMode('withdrawal')} className={`px-3 py-1.5 rounded-md transition-all ${viewMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>實際提領</button>
-                                                <button onClick={() => setViewMode('survival')} className={`px-3 py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>存活率</button>
+                                            <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold shadow-inner w-full sm:w-auto">
+                                                <button onClick={() => setViewMode('netWorth')} className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md transition-all ${viewMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>資產淨值</button>
+                                                <button onClick={() => setViewMode('withdrawal')} className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md transition-all ${viewMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>實際提領</button>
+                                                <button onClick={() => setViewMode('survival')} className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>存活率</button>
                                             </div>
                                         </div>
                                         
                                         {isSimulating ? (
-                                            <div className="h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg">
+                                            <div className="h-[300px] sm:h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg">
                                                 <Activity className="animate-pulse text-indigo-400" size={32} />
                                             </div>
                                         ) : renderChart()}
