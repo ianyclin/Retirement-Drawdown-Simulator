@@ -40,7 +40,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, memo } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, BarChart } from 'recharts';
+        import { LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, BarChart } from 'recharts';
         import { Settings, Activity, ShieldCheck, Scale, BookOpen, TrendingUp, RefreshCw, Maximize2, FileSearch, LineChart as ChartIcon, ExternalLink, HelpCircle, PieChart } from 'lucide-react';
 
         // --- Math & Simulation Engine ---
@@ -83,14 +83,13 @@
                 ]
             },
             {
-                id: 'riskbased', name: '風險基準護欄', color: '#8b5cf6', icon: <Scale size={16}/>,
-                desc: '觸發訊號改用「成功率(POS)」而非提領率。每年依當下資產與剩餘年限重算「跑完不破產的機率」；POS 衝破上界代表太省→加薪，跌破下界代表危險→減薪，並把支出重設回目標成功率。護欄因此隨年限自動收放，年齡越大同樣資產越安全。',
+                id: 'endowment', name: 'Yale 平滑法', color: '#ec4899', icon: <Scale size={16}/>,
+                desc: '耶魯校務基金的 Tobin(1974)平滑規則：當年提領 = 權重 ×(去年提領×通膨)＋(1−權重)×(當下資產×目標提領率)，耶魯預設權重 80%。介於「固定金額(對市場無感)」與「純百分比(大起大落)」之間，緩慢適應市場但不劇烈跳動。權重可在左側調整：100%≈退化成固定金額(4%法則)、0%≈退化成純百分比提領。',
                 calcSteps: [
-                    '候選提領 = 去年提領 × (1 + 通膨率)',
-                    '當前成功率 POS = f(候選提領 ÷ 當下資產, 剩餘年限)　← 預先以蒙地卡羅建表查得',
-                    '[加薪] POS > 上界(預設99%)：把支出重設到「目標POS(85%)」對應的較高金額',
-                    '[減薪] POS < 下界(預設70%)：把支出重設到「目標POS(85%)」對應的較低金額',
-                    '介於上下界之間：維持候選提領(只跟通膨)'
+                    '錨點 = 去年提領 × (1 + 通膨率)　(維持去年生活水準)',
+                    '目標 = 當下資產 × 初始提領率',
+                    '當年提領 = 權重 × 錨點 + (1−權重) × 目標',
+                    '預設 80/20(Tobin/耶魯)；權重可調，兩端會退化成固定金額或純百分比'
                 ]
             }
         ];
@@ -136,6 +135,7 @@
                 sky: 'bg-sky-50/30 border-sky-100/50',
                 amber: 'bg-amber-50/30 border-amber-100/50',
                 emerald: 'bg-emerald-50/30 border-emerald-100/50',
+                pink: 'bg-pink-50/30 border-pink-100/50',
             };
 
             return (
@@ -175,9 +175,11 @@
             );
         });
 
-        const CustomTooltip = ({ active, payload, label }) => {
+        const CustomTooltip = ({ active, payload, label, percentMode }) => {
             if (active && payload && payload.length) {
-                const filteredPayload = payload.filter(entry => !String(entry.dataKey).includes('_bg_'));
+                const _byKey = {};
+                payload.filter(entry => !String(entry.dataKey).includes('_bg_')).forEach(entry => { _byKey[String(entry.dataKey)] = entry; });
+                const filteredPayload = Object.values(_byKey);
 
                 return (
                     <div className="bg-white/95 backdrop-blur p-3 border border-slate-200 shadow-xl rounded-xl text-xs z-50 min-w-[160px]">
@@ -189,7 +191,7 @@
                                 let val = entry.value;
                                 if (typeof val !== 'number') return null; 
                                 
-                                const isPercent = entry.name === '市場報酬' || String(entry.dataKey).includes('survival') || String(entry.name).includes('率') || String(entry.name).includes('佔比');
+                                const isPercent = percentMode || entry.name === '市場報酬' || String(entry.dataKey).includes('survival') || String(entry.name).includes('率') || String(entry.name).includes('佔比');
                                 
                                 if (isPercent) val = val.toFixed(1) + '%';
                                 else val = Math.round(val).toLocaleString() + ' 萬';
@@ -221,10 +223,10 @@
             const [initialWithdrawalRate, setInitialWithdrawalRate] = useState(4.0); 
             
             // 預設為 80% 股債比
-            const [stockRatio, setStockRatio] = useState(80);
+            const [stockRatio, setStockRatio] = useState(60); // 退休時股票比例(預設 60%)
             
-            const [cagr, setCagr] = useState(8.8); 
-            const [volatility, setVolatility] = useState(14.5); 
+            const [cagr, setCagr] = useState(7.6); 
+            const [volatility, setVolatility] = useState(11.2); 
             const [inflation, setInflation] = useState(3.0); 
             const [years, setYears] = useState(30);
             const [simCount, setSimCount] = useState(1000);
@@ -243,11 +245,14 @@
             const [gkCapPreserveCut, setGkCapPreserveCut] = useState(10); 
             const [gkProsperityThresh, setGkProsperityThresh] = useState(20); 
             const [gkProsperityHike, setGkProsperityHike] = useState(10); 
+            const [yaleWeight, setYaleWeight] = useState(80); // Yale 平滑:錨定去年支出的權重(%)，Tobin/耶魯預設 80
+            const [selectedModels, setSelectedModels] = useState(['baseline', 'vanguard', 'guyton', 'endowment']);
 
-            const [viewMode, setViewMode] = useState('netWorth'); 
+            const [viewMode, setViewMode] = useState('withdrawal'); 
             const [auditChartMode, setAuditChartMode] = useState('netWorth'); 
             const [simResults, setSimResults] = useState(null);
             const [isSimulating, setIsSimulating] = useState(false);
+            const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
 
             useEffect(() => {
                 setIsSimulating(true);
@@ -419,55 +424,12 @@
                     const runSimulationWithReturns = () => {
                         const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
 
-                        // === 風險基準護欄:預先以蒙地卡羅建立 成功率(POS)查表 ===
-                        // 在「剩餘 h 年、固定實質支出佔當下資產 rate%」下，估計跑完不破產的機率
-                        const rbTargetPOS = 0.85, rbUpperPOS = 0.99, rbLowerPOS = 0.70;
-                        const posInnerTrials = 300;
-                        const posRateGrid = []; for (let r = 1.0; r <= 12.0001; r += 0.25) posRateGrid.push(r);
-                        const posTable = [];
-                        for (let h = 0; h <= years; h++) {
-                            const row = [];
-                            for (let gi = 0; gi < posRateGrid.length; gi++) {
-                                if (h === 0) { row.push(1); continue; }
-                                const rate = posRateGrid[gi] / 100;
-                                let surv = 0;
-                                for (let k = 0; k < posInnerTrials; k++) {
-                                    let p = 1.0, dead = false;
-                                    for (let y = 0; y < h; y++) {
-                                        const Z = randn_bm();
-                                        const nomR = (cagr / 100) + (volatility / 100) * Z;
-                                        const realR = (1 + nomR) / (1 + inflation / 100) - 1; // 實質報酬
-                                        p -= rate;
-                                        if (p <= 0) { dead = true; break; }
-                                        p *= (1 + realR);
-                                    }
-                                    if (!dead) surv++;
-                                }
-                                row.push(surv / posInnerTrials);
-                            }
-                            posTable.push(row);
-                        }
-                        const lookupPOS = (ratePct, h) => {
-                            if (h <= 0) return 1;
-                            const hh = Math.min(h, years);
-                            let gi = Math.round((ratePct - 1.0) / 0.25);
-                            gi = Math.max(0, Math.min(posRateGrid.length - 1, gi));
-                            return posTable[hh][gi];
-                        };
-                        const rateForPOS = (targetPOS, h) => { // 反查:達成 targetPOS 的提領率(%)
-                            if (h <= 0) return posRateGrid[posRateGrid.length - 1];
-                            const row = posTable[Math.min(h, years)];
-                            let best = posRateGrid[0]; // POS 隨提領率遞減
-                            for (let gi = 0; gi < row.length; gi++) { if (row[gi] >= targetPOS) best = posRateGrid[gi]; else break; }
-                            return best;
-                        };
-
-                        const pathsNW = { baseline: [], vanguard: [], guyton: [], riskbased: [] };
-                        const pathsW = { baseline: [], vanguard: [], guyton: [], riskbased: [] };
-                        const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0), riskbased: new Array(years + 1).fill(0) };
+                        const pathsNW = { baseline: [], vanguard: [], guyton: [], endowment: [] };
+                        const pathsW = { baseline: [], vanguard: [], guyton: [], endowment: [] };
+                        const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0), endowment: new Array(years + 1).fill(0) };
                         
-                        const mkTotal = () => ({ dead: 0, finalNW: [], totalWithdrawn: [], allRealWithdrawn: [], survivorWithdrawn: [], survivorRealWithdrawn: [], survivorDowngraded: 0, survivorYears: 0, wCVData: [] });
-                        let totals = { baseline: mkTotal(), vanguard: mkTotal(), guyton: mkTotal(), riskbased: mkTotal() };
+                        const mkTotal = () => ({ dead: 0, ruinYears: [], finalNW: [], totalWithdrawn: [], allRealWithdrawn: [], survivorWithdrawn: [], survivorRealWithdrawn: [], survivorFinalNW: [], survivorDowngraded: 0, survivorYears: 0, survivorShortfall: [], wCVData: [] });
+                        let totals = { baseline: mkTotal(), vanguard: mkTotal(), guyton: mkTotal(), endowment: mkTotal() };
 
                         const auditData = [];
                         const universePerformances = []; 
@@ -493,7 +455,7 @@
                                 if (i === 0) {
                                     auditData.push({
                                         year: t + 1, marketReturn: r * 100, inflationMult: currentInflFactor,
-                                        baseline: {}, vanguard: {}, guyton: {}, riskbased: {}
+                                        baseline: {}, vanguard: {}, guyton: {}, endowment: {}
                                     });
                                 }
                             }
@@ -509,6 +471,7 @@
                                 const pathRealW = [];
                                 let totW = 0;
                                 let pathDowngraded = 0; // 該路徑「未達首年購買力」的年數
+                                let ruinYear = 0;       // 破產發生的年序(0=未破產)
 
                                 for (let t = 0; t < years; t++) {
                                     let currentNote = '';
@@ -527,7 +490,7 @@
 
                                     if (!dead) {
                                         nw -= w;
-                                        if (nw <= 0) { nw = 0; dead = true; }
+                                        if (nw <= 0) { nw = 0; if (t < years - 1) { dead = true; ruinYear = t + 1; } }
                                         else { nw *= (1 + marketReturns[t]); }
                                     }
                                     
@@ -545,9 +508,9 @@
                                     }
                                 }
                                 
-                                const survived = nw > 0;
+                                const survived = !dead;
                                 const realTotal = pathRealW.reduce((a,b)=>a+b,0); // 全程實質提領；破產路徑=斷炊前累積(尾段為0)
-                                if (!survived) totals[stratId].dead++;
+                                if (!survived) { totals[stratId].dead++; totals[stratId].ruinYears.push(ruinYear); }
                                 totals[stratId].finalNW.push(nw);
                                 totals[stratId].totalWithdrawn.push(totW);
                                 totals[stratId].allRealWithdrawn.push(realTotal); // 全宇宙:含破產路徑(天生被存活率加權)
@@ -559,8 +522,14 @@
                                 if (survived) {
                                     totals[stratId].survivorWithdrawn.push(totW);          // 名目（保留備用）
                                     totals[stratId].survivorRealWithdrawn.push(realTotal); // 實質
+                                    totals[stratId].survivorFinalNW.push(nw);              // 期末名目淨值(遺產)
                                     totals[stratId].survivorDowngraded += pathDowngraded;
                                     totals[stratId].survivorYears += years;
+
+                                    // 降級「面積」：實質提領低於「維持首年購買力」基準線下方的累計幅度，標準化為平均每年短少 %
+                                    let pathShortfall = 0;
+                                    for (let yy = 0; yy < pathRealW.length; yy++) { const d = initialWithdrawal - pathRealW[yy]; if (d > 0) pathShortfall += d; }
+                                    totals[stratId].survivorShortfall.push(pathShortfall / (initialWithdrawal * years) * 100);
 
                                     const meanW = realTotal / years;
                                     const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
@@ -617,23 +586,12 @@
                                 return { w: nextW, note };
                             });
 
-                            simulateStrategy('riskbased', (t, nw, histW, mr, inf, exp) => {
+                            simulateStrategy('endowment', (t, nw, histW, mr, inf, exp) => {
                                 if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
-                                const h = years - t;                               // 剩餘年限(含當年)
-                                const candidate = histW[t-1] * (1 + inflation / 100); // 先跟通膨
-                                const candRatePct = (candidate / nw) * 100;
-                                const pos = lookupPOS(candRatePct, h);             // 維持此支出的成功率
-                                let w = candidate, note = '維持(通膨調整)';
-                                if (pos > rbUpperPOS) {
-                                    w = (rateForPOS(rbTargetPOS, h) / 100) * nw;   // 太安全→重設到目標POS(較高)
-                                    if (w < candidate) w = candidate;              // 加薪不反向
-                                    note = '🟢成功率過高→加薪';
-                                } else if (pos < rbLowerPOS) {
-                                    w = (rateForPOS(rbTargetPOS, h) / 100) * nw;   // 太危險→重設到目標POS(較低)
-                                    if (w > candidate) w = candidate;              // 減薪不反向
-                                    note = '🔴成功率過低→減薪';
-                                }
-                                return { w, note };
+                                const anchor = histW[t-1] * (1 + inflation / 100);    // 去年支出×通膨
+                                const target = nw * (initialWithdrawalRate / 100);    // 當下資產×目標率
+                                const wgt = yaleWeight / 100;
+                                return { w: wgt * anchor + (1 - wgt) * target, note: `平滑 ${yaleWeight}/${100 - yaleWeight}` };
                             });
                         }
 
@@ -646,49 +604,64 @@
                         const medianUniverseIdx = medianUniverse.idx;
                         const medianReturns = medianUniverse.returns; // 取得 P50 宇宙的市場表現
 
+                        survivals.baseline[0] = simCount; survivals.vanguard[0] = simCount; survivals.guyton[0] = simCount; survivals.endowment[0] = simCount;
+
+                        // 存活率：第 0~years 年（含起點 100%）
                         for (let t = 0; t <= years; t++) {
-                            survivals.baseline[0] = simCount; survivals.vanguard[0] = simCount; survivals.guyton[0] = simCount; survivals.riskbased[0] = simCount;
-                            
                             chartDataSurv.push({
                                 year: t,
                                 baseline: (survivals.baseline[t] / simCount) * 100,
                                 vanguard: (survivals.vanguard[t] / simCount) * 100,
                                 guyton: (survivals.guyton[t] / simCount) * 100,
-                                riskbased: (survivals.riskbased[t] / simCount) * 100
+                                endowment: (survivals.endowment[t] / simCount) * 100
                             });
+                        }
 
+                        // 淨值 / 提領：第 1~years 年（兩者同範圍，值皆完整，x 軸切換不跳動）
+                        for (let t = 1; t <= years; t++) {
                             const nwAtT = { year: t };
                             const wAtT = { year: t };
-                            
-                            // 寫入當年的市場報酬 (供背景長條圖使用)
-                            const mRet = t > 0 ? medianReturns[t-1] * 100 : null;
+                            const mRet = medianReturns[t-1] * 100; // 當年市場報酬（背景長條圖用）
                             nwAtT.marketReturn = mRet;
-                            if (t < years) wAtT.marketReturn = mRet;
+                            wAtT.marketReturn = mRet;
 
-                            ['baseline', 'vanguard', 'guyton', 'riskbased'].forEach(strat => {
-                                nwAtT[strat] = pathsNW[strat][medianUniverseIdx][t];
-                                if (t < years) wAtT[strat] = pathsW[strat][medianUniverseIdx][t];
+                            ['baseline', 'vanguard', 'guyton', 'endowment'].forEach(strat => {
+                                nwAtT[strat] = pathsNW[strat][medianUniverseIdx][t-1];
+                                wAtT[strat] = pathsW[strat][medianUniverseIdx][t-1];
                             });
-                            
+
                             chartDataNW.push(nwAtT);
-                            if (t < years) chartDataW.push(wAtT);
+                            chartDataW.push(wAtT);
                         }
 
                         const stats = {};
-                        ['baseline', 'vanguard', 'guyton', 'riskbased'].forEach(strat => {
+                        ['baseline', 'vanguard', 'guyton', 'endowment'].forEach(strat => {
                             const cvs = totals[strat].wCVData.sort((a,b)=>a-b); // 僅含存活路徑
                             const survRealWs = totals[strat].survivorRealWithdrawn;
                             const survCount = survRealWs.length;
                             const allRealWs = totals[strat].allRealWithdrawn;
+                            const ruins = totals[strat].ruinYears;
+                            // 期望存活年 = 存活率曲線下的面積 = Σ_t 各年存活比例(t=1..years)
+                            const expectedSurvivalYears = survivals[strat].slice(1).reduce((a,b)=>a+b,0) / simCount;
+                            const sfn = totals[strat].survivorFinalNW.slice().sort((a,b)=>a-b);
+                            const sf = totals[strat].survivorShortfall.slice().sort((a,b)=>a-b);
+                            const realDeflator = Math.pow(1 + inflation / 100, years); // 期末名目→今日購買力
                             stats[strat] = {
                                 // 全宇宙視角
                                 successRate: ((simCount - totals[strat].dead) / simCount) * 100,
+                                expectedSurvivalYears: expectedSurvivalYears,
+                                // 破產評估：破產路徑平均撐到第幾年(0 = 無人破產)
+                                avgRuinYear: ruins.length > 0 ? ruins.reduce((a,b)=>a+b,0) / ruins.length : 0,
                                 // 全宇宙期望實質提領：含破產路徑，天生被存活率加權，可拿來公平排序策略
                                 avgRealAllUniverse: allRealWs.length > 0 ? allRealWs.reduce((a,b)=>a+b,0) / simCount : 0,
                                 // 以下三者皆為「存活者視角」：在順利走完全程的前提下
                                 avgRealWithdrawn: survCount > 0 ? survRealWs.reduce((a,b)=>a+b,0) / survCount : 0,
                                 qolRate: totals[strat].survivorYears > 0 ? 100 - (totals[strat].survivorDowngraded / totals[strat].survivorYears) * 100 : 0,
-                                medianCV: survCount > 0 ? cvs[Math.floor(survCount / 2)] : 0
+                                medianCV: survCount > 0 ? cvs[Math.floor(survCount / 2)] : 0,
+                                // 平均短少%：降級面積(低於首年購買力基準線下方)標準化後的中位數
+                                medianShortfall: sf.length > 0 ? sf[Math.floor(sf.length / 2)] : 0,
+                                // 期末實質淨值(中位，僅存活者)：遺產/安全邊際；過大可能代表生前花太少
+                                medianRealFinalNW: sfn.length > 0 ? sfn[Math.floor(sfn.length / 2)] / realDeflator : 0
                             };
                         });
 
@@ -700,7 +673,7 @@
                     setIsSimulating(false);
                 }, 50);
                 return () => clearTimeout(timer);
-            }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, simSeed, sorrTest]);
+            }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, sorrTest]);
 
             const renderChart = () => {
                 if (!simResults) return null;
@@ -712,7 +685,7 @@
                 else if (viewMode === 'withdrawal') { data = simResults.chartDataW; yAxisLabel = '每年提領額 (萬)'; }
                 else if (viewMode === 'survival') { data = simResults.chartDataSurv; yAxisLabel = '資金存活機率 (%)'; }
 
-                const legendPayload = strategiesDef.map(s => ({
+                const legendPayload = activeStrategies.map(s => ({
                     id: s.id, type: 'circle', value: s.name.split(' ')[0], color: s.color
                 }));
 
@@ -724,7 +697,8 @@
                                 <XAxis 
                                     dataKey="year" 
                                     type="number"
-                                    domain={[0, 'dataMax']}
+                                    domain={[0, years]}
+                                    allowDataOverflow={true}
                                     tickCount={Math.floor(years / 5) + 1}
                                     label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -15, fontSize: 10, fill: '#94a3b8' }} 
                                     stroke="#cbd5e1" 
@@ -751,19 +725,18 @@
                                         width={35} 
                                     />
                                 )}
-                                <RechartsTooltip content={<CustomTooltip />} />
+                                <RechartsTooltip content={<CustomTooltip percentMode={viewMode === 'survival'} />} />
                                 <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}/>
                                 
                                 {viewMode !== 'survival' && (
                                     <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
                                 )}
 
-                                {strategiesDef.map(s => (
+                                {activeStrategies.map(s => (
                                     <Line yAxisId="left" key={`main_${s.id}`} type="monotone" dataKey={s.id} name={s.name.split(' ')[0]} stroke={s.color} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} legendType="none" />
                                 ))}
                                 
                                 {viewMode === 'survival' && <ReferenceLine yAxisId="left" y={100} stroke="#e2e8f0" strokeDasharray="3 3" />}
-                                {viewMode !== 'survival' && <ReferenceLine yAxisId="left" y={0} stroke="#ef4444" strokeWidth={1} strokeDasharray="5 5" />}
                             </ComposedChart>
                         </ResponsiveContainer>
                     </div>
@@ -779,10 +752,11 @@
                     marketReturn: d.marketReturn,
                     baseline: auditChartMode === 'netWorth' ? d.baseline.nw : d.baseline.w,
                     vanguard: auditChartMode === 'netWorth' ? d.vanguard.nw : d.vanguard.w,
-                    guyton: auditChartMode === 'netWorth' ? d.guyton.nw : d.guyton.w
+                    guyton: auditChartMode === 'netWorth' ? d.guyton.nw : d.guyton.w,
+                    endowment: auditChartMode === 'netWorth' ? d.endowment.nw : d.endowment.w
                 }));
 
-                const legendPayload = strategiesDef.map(s => ({
+                const legendPayload = activeStrategies.map(s => ({
                     id: s.id, type: 'circle', value: s.name.split(' ')[0], color: s.color
                 }));
 
@@ -827,10 +801,10 @@
                                         <Legend payload={legendPayload} verticalAlign="top" height={24} wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}/>
                                         
                                         <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
-                                        <Line yAxisId="left" type="monotone" dataKey="baseline" name="傳統" stroke="#94a3b8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
-                                        <Line yAxisId="left" type="monotone" dataKey="vanguard" name="Vanguard" stroke="#0ea5e9" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
-                                        <Line yAxisId="left" type="monotone" dataKey="guyton" name="Guyton" stroke="#f59e0b" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
-                                        <Line yAxisId="left" type="monotone" dataKey="riskbased" name="風險護欄" stroke="#8b5cf6" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
+                                        {selectedModels.includes("baseline") && <Line yAxisId="left" type="monotone" dataKey="baseline" name="傳統" stroke="#94a3b8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />}
+                                        {selectedModels.includes("vanguard") && <Line yAxisId="left" type="monotone" dataKey="vanguard" name="Vanguard" stroke="#0ea5e9" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />}
+                                        {selectedModels.includes("guyton") && <Line yAxisId="left" type="monotone" dataKey="guyton" name="Guyton" stroke="#f59e0b" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />}
+                                        {selectedModels.includes("endowment") && <Line yAxisId="left" type="monotone" dataKey="endowment" name="Yale" stroke="#ec4899" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />}
                                     </ComposedChart>
                                 </ResponsiveContainer>
                             </div>
@@ -902,21 +876,21 @@
                     baseline: simResults?.stats?.baseline?.successRate || 0,
                     vanguard: simResults?.stats?.vanguard?.successRate || 0,
                     guyton: simResults?.stats?.guyton?.successRate || 0,
-                    riskbased: simResults?.stats?.riskbased?.successRate || 0,
+                    endowment: simResults?.stats?.endowment?.successRate || 0,
                 },
                 {
                     name: '預期生活品質佔比',
                     baseline: simResults?.stats?.baseline?.qolRate || 0,
                     vanguard: simResults?.stats?.vanguard?.qolRate || 0,
                     guyton: simResults?.stats?.guyton?.qolRate || 0,
-                    riskbased: simResults?.stats?.riskbased?.qolRate || 0,
+                    endowment: simResults?.stats?.endowment?.qolRate || 0,
                 },
                 {
                     name: '提領變異係數(CV)',
                     baseline: simResults?.stats?.baseline?.medianCV || 0,
                     vanguard: simResults?.stats?.vanguard?.medianCV || 0,
                     guyton: simResults?.stats?.guyton?.medianCV || 0,
-                    riskbased: simResults?.stats?.riskbased?.medianCV || 0,
+                    endowment: simResults?.stats?.endowment?.medianCV || 0,
                 }
             ];
 
@@ -942,7 +916,8 @@
                     </header>
 
                     {showDefinitions && (
-                        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0">
+                        <div className="mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                             {strategiesDef.map(s => (
                                 <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-3">
                                     <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
@@ -958,13 +933,48 @@
                                     </div>
                                 </div>
                             ))}
+                            </div>
+                            <div className="mt-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                                <div className="text-[10px] font-extrabold text-slate-500 mb-2 flex items-center gap-1.5"><BookOpen size={12}/> 參考文獻 References</div>
+                                <ul className="text-[10px] text-slate-500 space-y-1.5 leading-relaxed list-disc pl-4">
+                                    <li>Bengen, W. P. (1994). Determining Withdrawal Rates Using Historical Data. <i>Journal of Financial Planning</i>. — 4% 法則原始出處</li>
+                                    <li>Cooley, P. L., Hubbard, C. M., &amp; Walz, D. T. (1998). Retirement Savings: Choosing a Sustainable Withdrawal Rate (Trinity Study). <i>AAII Journal</i>.</li>
+                                    <li>Guyton, J. T. (2004). Decision Rules and Portfolio Management for Retirees. <i>Journal of Financial Planning</i>.</li>
+                                    <li>Guyton, J. T., &amp; Klinger, W. J. (2006). Decision Rules and Maximum Initial Withdrawal Rates. <i>Journal of Financial Planning</i>. — 保本/繁榮護欄、修正提領法則</li>
+                                    <li>Jaconetti, C. M., et al. (2020). From Assets to Income: A Goal-Based Approach to Retirement Spending. <i>Vanguard</i>. — 動態提領上下限</li>
+                                    <li>Costa, P., Pakula, D., &amp; Clarke, A. S. (2021). Fuel for the F.I.R.E.: Updating the 4% rule for early retirees. <i>Vanguard Research</i>.</li>
+                                    <li>Tobin, J. (1974). What Is Permanent Endowment Income? <i>American Economic Review</i>；Swensen, D. F. (2009). <i>Pioneering Portfolio Management</i>. — 耶魯/Tobin 80/20 平滑支出規則</li>
+                                </ul>
+                                <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">本模擬器之數值為示意性蒙地卡羅結果，非投資建議；實際規劃請納入稅負、健保、社會保險等本模型未涵蓋之因素。</p>
+                            </div>
                         </div>
                     )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 relative">
                         {/* 左側參數面板 */}
                         <div className="lg:col-span-4 flex flex-col gap-4 md:gap-5 lg:sticky lg:top-4 lg:h-[calc(100vh-40px)] lg:overflow-y-auto custom-scroll pr-1 px-2 md:px-0">
-                            
+
+                            <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
+                                <h3 className="font-extrabold text-slate-800 mb-3 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
+                                    <Scale className="w-4 h-4 text-indigo-500"/> 比較模型
+                                </h3>
+                                <div className="flex flex-wrap gap-2">
+                                    {strategiesDef.map(s => {
+                                        const on = selectedModels.includes(s.id);
+                                        return (
+                                            <button key={s.id}
+                                                onClick={() => setSelectedModels(prev => prev.includes(s.id) ? (prev.length > 1 ? prev.filter(x => x !== s.id) : prev) : [...prev, s.id])}
+                                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${on ? 'shadow-sm' : 'opacity-40 grayscale'}`}
+                                                style={{ borderColor: s.color, backgroundColor: on ? `${s.color}15` : 'transparent', color: s.color }}>
+                                                <span className="shrink-0">{s.icon}</span>
+                                                <span>{s.id === 'guyton' ? 'G-K' : s.name.split(' ')[0]}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-2">點選切換要納入比較的策略(至少保留一個)。</p>
+                            </div>
+
                             <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
                                 <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
                                     <PieChart className="w-4 h-4 text-indigo-500"/> 資產配置與市場環境
@@ -972,9 +982,9 @@
                                 
                                 <div className="mb-4">
                                     <InputSlider 
-                                        label="股票配置比例" value={stockRatio} setter={handleStockRatioChange} 
+                                        label="退休時股票比例" value={stockRatio} setter={handleStockRatioChange} 
                                         min={0} max={100} step={10} suffix="%" color="emerald"
-                                        info="自動連動歷史平均預期報酬與波動率（基於全球股/美債長期模型）" 
+                                        info="這是「退休後／提領期間」的股票比例，不是累積期。會自動連動預期報酬與波動率(全球股/美債長期模型)。比例越高長期報酬越高、但報酬順序風險也越大。" 
                                     />
                                     <div className="flex justify-between px-2 mt-1 text-[10px] text-slate-400 font-medium">
                                         <span>保守 (多債)</span><span>積極 (多股)</span>
@@ -1033,6 +1043,10 @@
                                         <InputSlider label="繁榮:增加提領" value={gkProsperityHike} setter={setGkProsperityHike} min={0} max={30} step={5} suffix="%" color="amber" />
                                     </div>
                                 </div>
+                                <div className="pt-4 border-t border-slate-100">
+                                    <h4 className="text-[11px] md:text-xs font-bold text-pink-700 mb-2 flex items-center gap-1"><Scale size={14}/> Yale 平滑法</h4>
+                                    <InputSlider label="穩定權重(錨定去年支出)" value={yaleWeight} setter={setYaleWeight} min={0} max={100} step={5} suffix="%" color="pink" info="兩端會退化：100%≈固定金額(等同4%法則)、0%≈純百分比提領，中間才是真正的 Yale 平滑(耶魯用80%)。玩法：從80往下拉，觀察存活率↗、CV↗與期望提領的變化。" />
+                                </div>
                             </div>
                         </div>
 
@@ -1048,15 +1062,15 @@
                             </div>
 
                             {activeTab === 'monteCarlo' ? (
-                                <div className="space-y-4 md:space-y-5 animate-in fade-in zoom-in-95 duration-200">
+                                <div className="flex flex-col-reverse gap-4 md:gap-5 animate-in fade-in zoom-in-95 duration-200">
                                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-5">
                                         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
                                             <h2 className="text-sm md:text-lg font-extrabold text-slate-800 flex items-center gap-1.5">
                                                 資產與提領趨勢 
                                                 <span className="text-[10px] md:text-xs font-medium text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded ml-1 group relative cursor-help">
-                                                    典型宇宙 P50
-                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal break-words">
-                                                        將 1000 個宇宙依市場績效排序，挑選出最典型的單一市場宇宙，觀察三種策略在相同漲跌下的表現差異。
+                                                    市場中位宇宙
+                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-56 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal break-words">
+                                                        從全部宇宙中，依「累積市場報酬」排序取中位的那一條，讓所有策略走在同一條市場路徑上做公平對比。注意：這是「市場」中位，非各策略「結果」的中位數。
                                                     </div>
                                                 </span>
                                             </h2>
@@ -1106,7 +1120,7 @@
                                                         }} />
                                                         <Legend verticalAlign="top" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', paddingBottom: '10px' }} content={() => (
                                                             <div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5">
-                                                                {strategiesDef.map(s => (
+                                                                {activeStrategies.map(s => (
                                                                     <div key={s.id} className="flex items-center gap-1">
                                                                         <span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: s.color}}></span>
                                                                         <span className="text-[10px] text-slate-600">{s.name.split(' ')[0]}</span>
@@ -1114,40 +1128,32 @@
                                                                 ))}
                                                             </div>
                                                         )} />
-                                                        {strategiesDef.map(s => <Bar key={s.id} dataKey={s.id} fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={800} />)}
+                                                        {activeStrategies.map(s => <Bar key={s.id} dataKey={s.id} fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={800} />)}
                                                     </BarChart>
                                                 </ResponsiveContainer>
                                             </div>
                                         </div>
 
                                         <div className="overflow-x-auto custom-scroll bg-white">
-                                            <div className="min-w-[940px]">
+                                            <div className="min-w-[560px]">
                                                 <table className="w-full text-xs md:text-sm text-center table-fixed">
                                                     <colgroup>
-                                                        <col style={{width:'13%'}} />
-                                                        <col style={{width:'15%'}} />
-                                                        <col style={{width:'18%'}} />
-                                                        <col style={{width:'18%'}} />
-                                                        <col style={{width:'16%'}} />
-                                                        <col style={{width:'20%'}} />
+                                                        <col style={{width:'22%'}} />
+                                                        <col style={{width:'30%'}} />
+                                                        <col style={{width:'24%'}} />
+                                                        <col style={{width:'24%'}} />
                                                     </colgroup>
                                                     <thead className="font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200">
                                                         <tr>
                                                             <th rowSpan={2} className="px-2 py-3 border-r border-slate-100 align-middle">策略</th>
-                                                            <th colSpan={2} className="px-2 py-2 border-r border-slate-200 text-emerald-700 bg-emerald-100/60 text-[10px] md:text-xs font-extrabold tracking-wider">全宇宙(含破產路徑)</th>
-                                                            <th colSpan={3} className="px-2 py-2 text-indigo-700 bg-indigo-100/50 text-[10px] md:text-xs font-extrabold tracking-wider">存活者視角 · 順利走完全程</th>
+                                                            <th className="px-2 py-2 border-r border-slate-200 text-emerald-700 bg-emerald-100/60 text-[10px] md:text-xs font-extrabold tracking-wider">全宇宙</th>
+                                                            <th colSpan={2} className="px-2 py-2 text-indigo-700 bg-indigo-100/50 text-[10px] md:text-xs font-extrabold tracking-wider">存活者視角 · 順利走完全程</th>
                                                         </tr>
                                                         <tr>
-                                                            <th className="px-2 py-3 border-r border-slate-100 text-emerald-700 bg-emerald-50/50 align-top">
+                                                            <th className="px-2 py-3 border-r border-slate-200 text-emerald-700 bg-emerald-50/50 align-top">
                                                                 <div className="flex flex-col items-center gap-0.5">
                                                                     <span>存活率</span>
-                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-emerald-500/90">撐過全程不破產的機率</span>
-                                                                </div>
-                                                            </th>
-                                                            <th className="px-2 py-3 border-r border-slate-200 text-teal-700 bg-teal-50/50 align-top">
-                                                                <div className="flex flex-col items-center gap-0.5">
-                                                                    <span>全宇宙期望實質提領</span>
-                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-teal-500/90">含破產路徑 · 風險調整後</span>
+                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-emerald-500/90">撐過全程不破產(附:期望存活年)</span>
                                                                 </div>
                                                             </th>
                                                             <th className="px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50 align-top">
@@ -1156,36 +1162,39 @@
                                                                     <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-blue-400/90">維持或超越首年購買力</span>
                                                                 </div>
                                                             </th>
-                                                            <th className="px-2 py-3 border-r border-slate-100 text-amber-700 bg-amber-50/50 align-top">
+                                                            <th className="px-2 py-3 text-amber-700 bg-amber-50/50 align-top">
                                                                 <div className="flex flex-col items-center gap-0.5">
                                                                     <span>提領變異係數(CV)</span>
                                                                     <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-amber-500/90">越低越穩,生活費不亂跳</span>
                                                                 </div>
                                                             </th>
-                                                            <th className="px-2 py-3 text-slate-600 bg-slate-100/50 align-top">
-                                                                <div className="flex flex-col items-center gap-0.5">
-                                                                    <span>生涯總實質提領</span>
-                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-slate-400">今日購買力 · 僅存活者</span>
-                                                                </div>
-                                                            </th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100">
-                                                        {strategiesDef.map(s => {
+                                                        {activeStrategies.map(s => {
                                                             const stat = simResults?.stats?.[s.id];
                                                             if (!stat) return null;
                                                             return (
                                                                 <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
                                                                     <td className="px-2 py-3 md:py-4 font-bold border-r border-slate-100">
-                                                                        <div className="flex items-center justify-center gap-1.5 truncate" style={{ color: s.color }}>
-                                                                            {s.icon} <span>{s.name.split(' ')[0]}</span>
+                                                                        <div className="flex items-center justify-center gap-1.5" style={{ color: s.color }}>
+                                                                            <span className="shrink-0">{s.icon}</span>
+                                                                            <span className="truncate">{s.id === 'guyton' ? 'G-K' : s.name.split(' ')[0]}</span>
                                                                         </div>
                                                                     </td>
-                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-emerald-700 bg-emerald-50/20 border-r border-slate-100">{stat.successRate.toFixed(1)}%</td>
-                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-teal-700 bg-teal-50/20 border-r border-slate-200">{Math.round(stat.avgRealAllUniverse).toLocaleString()} 萬</td>
-                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-blue-700 bg-blue-50/20 border-r border-slate-100">{stat.qolRate.toFixed(1)}%</td>
-                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-amber-700 bg-amber-50/20 border-r border-slate-100">{stat.medianCV.toFixed(1)}%</td>
-                                                                    <td className="px-2 py-3 md:py-4 font-mono text-slate-700 bg-slate-50/30">{Math.round(stat.avgRealWithdrawn).toLocaleString()} 萬</td>
+                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-emerald-700 bg-emerald-50/20 border-r border-slate-200">
+                                                                        <div className="flex flex-col items-center gap-0.5">
+                                                                            <span>{stat.successRate.toFixed(1)}%</span>
+                                                                            <span className="text-[10px] font-normal tracking-tight text-emerald-500/80">期望存活 {stat.expectedSurvivalYears.toFixed(1)} 年</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-blue-700 bg-blue-50/20 border-r border-slate-100">
+                                                                        <div className="flex flex-col items-center gap-0.5">
+                                                                            <span>{stat.qolRate.toFixed(1)}%</span>
+                                                                            <span className="text-[10px] font-normal tracking-tight text-blue-400/80">平均短少 -{stat.medianShortfall.toFixed(1)}%</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-amber-700 bg-amber-50/20">{stat.medianCV.toFixed(1)}%</td>
                                                                 </tr>
                                                             );
                                                         })}
