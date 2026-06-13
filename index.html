@@ -240,170 +240,6 @@
             useEffect(() => {
                 setIsSimulating(true);
                 const timer = setTimeout(() => {
-                    const runSimulation = () => {
-                        const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
-                        
-                        const pathsNW = { baseline: [], vanguard: [], guyton: [] };
-                        const pathsW = { baseline: [], vanguard: [], guyton: [] };
-                        const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
-                        
-                        let totals = {
-                            baseline: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
-                            vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
-                            guyton: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] }
-                        };
-
-                        const auditData = [];
-                        const universePerformances = []; 
-
-                        for (let i = 0; i < simCount; i++) {
-                            const marketReturns = [];
-                            const inflFactors = []; 
-                            let currentInflFactor = 1;
-                            let pathMarketReturn = 1; 
-                            
-                            for (let t = 0; t < years; t++) {
-                                const Z = randn_bm();
-                                let r = (cagr / 100) + (volatility / 100) * Z;
-                                
-                                if (sorrTest && t < 3) { r = -0.15; }
-
-                                marketReturns.push(r);
-                                pathMarketReturn *= (1 + r);
-                                
-                                currentInflFactor *= (1 + (inflation / 100));
-                                inflFactors.push(currentInflFactor);
-                                
-                                if (i === 0) {
-                                    auditData.push({
-                                        year: t + 1, marketReturn: r * 100, inflationMult: currentInflFactor,
-                                        baseline: {}, vanguard: {}, guyton: {}
-                                    });
-                                }
-                            }
-                            
-                            universePerformances.push({ idx: i, totalReturn: pathMarketReturn });
-
-                            const simulateStrategy = (stratId, logicFn) => {
-                                let nw = initialCapital;
-                                let w = 0;
-                                let dead = false;
-                                const pathNW = [];
-                                const pathW = [];
-                                const pathRealW = [];
-                                let totW = 0;
-
-                                for (let t = 0; t < years; t++) {
-                                    let currentNote = '';
-                                    const expectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t-1];
-
-                                    if (!dead) {
-                                        const res = logicFn(t, nw, pathW, marketReturns, inflFactors, expectedRealW);
-                                        w = res.w;
-                                        currentNote = res.note;
-                                    } else {
-                                        w = 0;
-                                        currentNote = '資產耗盡';
-                                    }
-
-                                    if (w < expectedRealW - 0.1) totals[stratId].downgradedYears++;
-
-                                    if (!dead) {
-                                        nw -= w;
-                                        if (nw <= 0) { nw = 0; dead = true; }
-                                        else { nw *= (1 + marketReturns[t]); }
-                                    }
-                                    
-                                    totW += w;
-                                    pathNW.push(nw);
-                                    pathW.push(w);
-                                    pathRealW.push(t === 0 ? w : w / inflFactors[t-1]);
-                                    
-                                    if (!dead) survivals[stratId][t+1]++;
-                                    
-                                    if (i === 0) {
-                                        auditData[t][stratId].nw = nw;
-                                        auditData[t][stratId].w = w;
-                                        auditData[t][stratId].note = currentNote;
-                                    }
-                                }
-                                
-                                if (nw <= 0) totals[stratId].dead++;
-                                totals[stratId].finalNW.push(nw);
-                                totals[stratId].totalWithdrawn.push(totW);
-                                pathsNW[stratId].push(pathNW);
-                                pathsW[stratId].push(pathW);
-
-                                const meanW = pathRealW.reduce((a,b)=>a+b,0) / years;
-                                const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
-                                const stdW = Math.sqrt(varW);
-                                totals[stratId].wCVData.push(meanW > 0 ? (stdW / meanW) * 100 : 0);
-                            };
-
-                            simulateStrategy('baseline', (t, nw, histW, mr, inf, exp) => {
-                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
-                                return { w: initialWithdrawal * inf[t-1], note: '依通膨調整' };
-                            });
-
-                            simulateStrategy('vanguard', (t, nw, histW, mr, inf, exp) => {
-                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
-                                const expectedW = nw * (initialWithdrawalRate / 100); 
-                                const prevActualW = histW[t-1]; 
-                                const maxW = prevActualW * (1 + vanCeiling / 100); 
-                                const minW = prevActualW * (1 - vanFloor / 100);   
-                                const actualW = Math.min(Math.max(expectedW, minW), maxW);
-                                
-                                let note = '比例自然變動';
-                                if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限 (限縮)';
-                                else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限 (保護)';
-                                return { w: actualW, note };
-                            });
-
-                            simulateStrategy('guyton', (t, nw, histW, mr, inf, exp) => {
-                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
-                                const prevReturn = mr[t-1];
-                                let nextW = histW[t-1];
-                                let note = '';
-                                
-                                if (prevReturn >= 0) { nextW *= (1 + inflation / 100); note = '隨通膨增加'; } 
-                                else { note = '❄️凍結通膨'; } 
-
-                                const wr = (nextW / nw) * 100;
-                                if (prevReturn < 0 && wr > initialWithdrawalRate * (1 + gkCapPreserveThresh/100)) {
-                                    nextW *= (1 - gkCapPreserveCut/100); note += ' | 🔴保本刪減';
-                                } else if (prevReturn > 0 && wr < initialWithdrawalRate * (1 - gkProsperityThresh/100)) {
-                                    nextW *= (1 + gkProsperityHike/100); note = '🟢繁榮加薪';
-                                }
-                                return { w: nextW, note };
-                            });
-                        }
-
-                        const chartDataNW = [];
-                        const chartDataW = [];
-                        const chartDataSurv = [];
-
-                        universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
-                        const medianUniverse = universePerformances[Math.floor(simCount / 2)];
-                        const medianUniverseIdx = medianUniverse.idx;
-
-                        // 為了畫背景長條圖，重新提取這 1 個特定宇宙每一年的報酬率
-                        // 注意：marketReturns 陣列是 [0 到 years-1]
-                        const pathReturnsForChart = [];
-                        let nwTemp = initialCapital;
-                        let deadTemp = false;
-                        for (let t = 0; t < years; t++) {
-                             // 我們必須用同樣的 random 序列或是我們在上面直接把每次的 returns 存起來
-                             // 為了效能，我們在上面 universePerformances 可以存
-                        }
-                        // 修正：直接從第一個跑回圈的地方，把所有的 marketReturns 存進 auditData[0...years] 時，
-                        // 但那是第 0 個 universe。我們需要 P50 universe 的 marketReturn。
-                        // 我們在上頭跑時，並未保留每個 universe 的逐年報酬率陣列以節省記憶體。
-                        // 退而求其次：為了讓 P50 有背景長條圖，我們可以用淨值反推，或者再跑一次 RNG (固定 seed 不行，因為隨機數不同)。
-                        // 這裡採用一個最準確的解法：直接把 universePerformances 存入 { idx, totalReturn, returns: [] }
-                        
-                    }; // end runSimulation (由於要在原結構加回 returns，我直接在下面這版完整重建)
-                    
-                    // 重建 runSimulation 以完美支援背景圖
                     const runSimulationWithReturns = () => {
                         const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
                         
@@ -411,10 +247,11 @@
                         const pathsW = { baseline: [], vanguard: [], guyton: [] };
                         const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
                         
+                        // 修正重點：新增 survivorWithdrawn 陣列，專門記錄成功存活路徑的總提領額
                         let totals = {
-                            baseline: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
-                            vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
-                            guyton: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] }
+                            baseline: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] },
+                            vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] },
+                            guyton: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] }
                         };
 
                         const auditData = [];
@@ -495,8 +332,11 @@
                                 if (nw <= 0) totals[stratId].dead++;
                                 totals[stratId].finalNW.push(nw);
                                 totals[stratId].totalWithdrawn.push(totW);
-                                pathsNW[stratId].push(pathNW);
-                                pathsW[stratId].push(pathW);
+                                
+                                // 修正重點：若資產未耗盡，則將總提領記錄至「倖存者清單」
+                                if (nw > 0) {
+                                    totals[stratId].survivorWithdrawn.push(totW);
+                                }
 
                                 const meanW = pathRealW.reduce((a,b)=>a+b,0) / years;
                                 const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
@@ -549,7 +389,7 @@
                         universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
                         const medianUniverse = universePerformances[Math.floor(simCount / 2)];
                         const medianUniverseIdx = medianUniverse.idx;
-                        const medianReturns = medianUniverse.returns; // 取得 P50 宇宙的市場表現
+                        const medianReturns = medianUniverse.returns; 
 
                         for (let t = 0; t <= years; t++) {
                             survivals.baseline[0] = simCount; survivals.vanguard[0] = simCount; survivals.guyton[0] = simCount;
@@ -564,7 +404,6 @@
                             const nwAtT = { year: t };
                             const wAtT = { year: t };
                             
-                            // 寫入當年的市場報酬 (供背景長條圖使用)
                             const mRet = t > 0 ? medianReturns[t-1] * 100 : null;
                             nwAtT.marketReturn = mRet;
                             if (t < years) wAtT.marketReturn = mRet;
@@ -580,11 +419,15 @@
 
                         const stats = {};
                         ['baseline', 'vanguard', 'guyton'].forEach(strat => {
-                            const totWs = totals[strat].totalWithdrawn.sort((a,b)=>a-b);
+                            const finalNWs = totals[strat].finalNW.sort((a,b)=>a-b);
+                            // 修正重點：改為計算 survivorWithdrawn 的平均值
+                            const survivorWs = totals[strat].survivorWithdrawn;
+                            const avgWithdrawn = survivorWs.length > 0 ? (survivorWs.reduce((a,b)=>a+b,0) / survivorWs.length) : 0;
+                            
                             const cvs = totals[strat].wCVData.sort((a,b)=>a-b);
                             stats[strat] = {
                                 successRate: ((simCount - totals[strat].dead) / simCount) * 100,
-                                avgWithdrawn: totWs.reduce((a,b)=>a+b,0) / simCount,
+                                avgWithdrawn: avgWithdrawn,
                                 qolRate: 100 - ((totals[strat].downgradedYears / (simCount * years)) * 100),
                                 medianCV: cvs[Math.floor(simCount / 2)] 
                             };
@@ -637,7 +480,6 @@
                                     domain={viewMode === 'survival' ? [0, 100] : ['auto', 'auto']}
                                     tick={{fontSize: 10, fill: '#94a3b8'}}
                                 />
-                                {/* 雙軸與長條圖背景 (僅在非存活率檢視時顯示) */}
                                 {viewMode !== 'survival' && (
                                     <YAxis 
                                         yAxisId="right" 
@@ -910,14 +752,15 @@
                                     <Scale className="w-4 h-4 text-slate-500"/> 動態護欄閥值微調
                                 </h3>
                                 <div className="mb-5">
-                                    <h4 className="text-[11px] md:text-xs font-bold text-sky-700 mb-2 flex items-center gap-1"><ShieldCheck size={14}/> Vanguard</h4>
+                                    <h4 className="text-[11px] md:text-xs font-bold text-sky-700 mb-2 flex items-center gap-1"><ShieldCheck size={14}/> Vanguard 變動護欄</h4>
                                     <div className="grid grid-cols-2 gap-2">
                                         <InputSlider label="提領增加上限" value={vanCeiling} setter={setVanCeiling} min={0} max={15} step={0.5} suffix="%" color="sky" />
                                         <InputSlider label="提領減少下限" value={vanFloor} setter={setVanFloor} min={0} max={15} step={0.5} suffix="%" color="sky" />
                                     </div>
                                 </div>
+
                                 <div className="pt-4 border-t border-slate-100">
-                                    <h4 className="text-[11px] md:text-xs font-bold text-amber-700 mb-2 flex items-center gap-1"><TrendingUp size={14}/> Guyton-Klinger</h4>
+                                    <h4 className="text-[11px] md:text-xs font-bold text-amber-700 mb-2 flex items-center gap-1"><TrendingUp size={14}/> Guyton-Klinger 決策閥值</h4>
                                     <div className="grid grid-cols-2 gap-2 mb-2">
                                         <InputSlider label="保本:觸發閥值" value={gkCapPreserveThresh} setter={setGkCapPreserveThresh} min={0} max={50} step={5} suffix="%" color="amber" info="提領率相對初始攀升X%時觸發" />
                                         <InputSlider label="保本:削減提領" value={gkCapPreserveCut} setter={setGkCapPreserveCut} min={0} max={30} step={5} suffix="%" color="amber" />
@@ -1021,9 +864,19 @@
                                                         <tr>
                                                             <th className="w-1/5 px-2 py-3 border-r border-slate-100">策略</th>
                                                             <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-emerald-700 bg-emerald-50/50">存活率</th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50">預期生活品質佔比</th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-amber-700 bg-amber-50/50">提領變異係數(CV)</th>
-                                                            <th className="w-1/5 px-2 py-3 text-slate-600 bg-slate-100/50">生涯總提領均值</th>
+                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50">
+                                                                <div>預期生活品質佔比</div>
+                                                                <div className="text-[9px] font-normal text-blue-600/70 mt-0.5 tracking-tighter leading-tight">(維持或超越首年購買力)</div>
+                                                            </th>
+                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-amber-700 bg-amber-50/50">
+                                                                <div>提領變異係數(CV)</div>
+                                                                <div className="text-[9px] font-normal text-amber-600/70 mt-0.5 tracking-tighter leading-tight">(越低越穩，生活費不亂跳)</div>
+                                                            </th>
+                                                            <th className="w-1/5 px-2 py-3 text-slate-600 bg-slate-100/50">
+                                                                {/* 修正重點5：加入附註說明，精確解釋平均總提領的計算基準 */}
+                                                                <div>生涯總提領均值</div>
+                                                                <div className="text-[9px] font-normal text-slate-500 mt-0.5 tracking-tighter leading-tight">(排除破產，僅計存活路徑)</div>
+                                                            </th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100">
