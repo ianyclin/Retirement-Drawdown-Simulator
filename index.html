@@ -2,8 +2,8 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>退休動態提領模擬器 v4.0</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>退休動態提領模擬器 v3.9</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -30,18 +30,18 @@
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
-        .sticky-col { position: sticky; left: 0; background-color: #ffffff; z-index: 10; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.05); }
-        .sticky-col-header { position: sticky; left: 0; z-index: 20; }
+        .sticky-col { position: sticky; left: 0; background-color: #ffffff; z-index: 20; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1); }
+        .sticky-header { position: sticky; top: 0; z-index: 30; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, memo } from 'react';
+        import React, { useState, useEffect, memo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, BarChart } from 'recharts';
-        import { Settings, Activity, ShieldCheck, Scale, BookOpen, TrendingUp, RefreshCw, Maximize2, FileSearch, LineChart as ChartIcon, ExternalLink, HelpCircle } from 'lucide-react';
+        import { Settings, Activity, ShieldCheck, Scale, BookOpen, TrendingUp, RefreshCw, Maximize2, FileSearch, LineChart as ChartIcon, ExternalLink, HelpCircle, PieChart } from 'lucide-react';
 
         // --- Math & Simulation Engine ---
         const randn_bm = () => {
@@ -72,10 +72,10 @@
                 ]
             },
             { 
-                id: 'guyton', name: 'Guyton-Klinger 法則', color: '#f59e0b', icon: <TrendingUp size={16}/>, 
+                id: 'guyton', name: 'Guyton-Klinger', color: '#f59e0b', icon: <TrendingUp size={16}/>, 
                 desc: '負報酬凍結通膨；提領率飆高時強制限縮生活費(保本)，提領率過低時主動加薪(繁榮)。',
                 calcSteps: [
-                    '若當年市場負報酬，凍結通膨調整',
+                    '若當年市場負報酬，凍結通膨調整(次年提領=去年)',
                     '當下真實提領率 = 預期提領額 ÷ 當下資產餘額',
                     '[保本]: 負報酬 且 提領率 > 初始提領率×(1+保本閥值)，提領額削減 X%',
                     '[繁榮]: 正報酬 且 提領率 < 初始提領率×(1-繁榮閥值)，提領額增加 Y%'
@@ -83,8 +83,32 @@
             }
         ];
 
+        // --- 股債配置連動模型 ---
+        const getAssetAllocationParams = (stockRatio) => {
+            // 簡化的股債歷史風險報酬模型 (可根據需求微調)
+            const stockReturn = 10.0; const stockVol = 18.0;
+            const bondReturn = 4.0;  const bondVol = 5.0;
+            const correlation = 0.1; // 假設股債微弱正相關
+
+            const wS = stockRatio / 100;
+            const wB = 1 - wS;
+
+            const expectedReturn = wS * stockReturn + wB * bondReturn;
+            const expectedVol = Math.sqrt(
+                Math.pow(wS * stockVol, 2) + 
+                Math.pow(wB * bondVol, 2) + 
+                2 * wS * wB * stockVol * bondVol * correlation
+            );
+
+            return {
+                r: parseFloat(expectedReturn.toFixed(1)),
+                v: parseFloat(expectedVol.toFixed(1))
+            };
+        };
+
+
         // --- UI Components ---
-        const InputSlider = memo(({ label, value, setter, min, max, step, suffix, info }) => {
+        const InputSlider = memo(({ label, value, setter, min, max, step, suffix, info, color = 'indigo' }) => {
             const [inputValue, setInputValue] = useState(value);
             useEffect(() => setInputValue(value), [value]);
             
@@ -97,15 +121,27 @@
                 setInputValue(num);
             };
 
+            const bgColors = {
+                indigo: 'bg-slate-50/50 border-slate-200',
+                sky: 'bg-sky-50/30 border-sky-100/50',
+                amber: 'bg-amber-50/30 border-amber-100/50',
+                emerald: 'bg-emerald-50/30 border-emerald-100/50',
+            };
+
             return (
-                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 flex flex-col h-full">
+                <div className={`p-3 md:p-3 rounded-lg border ${bgColors[color]} flex flex-col h-full relative group`}>
                     <div className="flex justify-between items-start gap-2 mb-3">
-                        <label 
-                            className="text-xs font-bold text-slate-700 leading-snug flex-1 min-w-0 break-words line-clamp-2 cursor-help relative group"
-                            title={info}
-                            onClick={() => info && alert(info)}
-                        >
-                            {label}
+                        <label className="text-xs font-bold text-slate-700 leading-snug flex-1 flex items-center gap-1">
+                            <span className="line-clamp-2">{label}</span>
+                            {info && (
+                                <div className="relative flex items-center">
+                                    <HelpCircle size={13} className="text-slate-400 cursor-help" />
+                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+                                        {info}
+                                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+                                    </div>
+                                </div>
+                            )}
                         </label>
                         <div className="flex items-center bg-white rounded border border-slate-300 shadow-sm px-1.5 py-0.5 shrink-0">
                             <input 
@@ -118,11 +154,11 @@
                             <span className="text-[10px] text-slate-500 pl-1">{suffix}</span>
                         </div>
                     </div>
-                    <div className="mt-auto">
+                    <div className="mt-auto pt-1">
                         <input
                             type="range" min={min} max={max} step={step} value={value}
                             onChange={(e) => setter(Number(e.target.value))}
-                            className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                            className={`w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-${color}-500`}
                         />
                     </div>
                 </div>
@@ -134,8 +170,8 @@
                 const filteredPayload = payload.filter(entry => !String(entry.dataKey).includes('_bg_'));
 
                 return (
-                    <div className="bg-white/95 backdrop-blur p-3 border border-slate-200 shadow-xl rounded-xl text-xs z-50 min-w-[180px]">
-                        <p className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-1 flex justify-between">
+                    <div className="bg-white/95 backdrop-blur p-3 border border-slate-200 shadow-xl rounded-xl text-xs z-50 min-w-[160px]">
+                        <p className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-1">
                             <span>退休第 {label} 年</span>
                         </p>
                         <div className="space-y-2">
@@ -149,10 +185,10 @@
                                 else val = Math.round(val).toLocaleString() + ' 萬';
                                 
                                 return (
-                                    <div key={index} className="flex items-center justify-between gap-6">
-                                        <div className="flex items-center gap-2">
-                                            <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: entry.color || entry.fill }}></span>
-                                            <span className="font-medium text-slate-600">{entry.name}</span>
+                                    <div key={index} className="flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: entry.color || entry.fill }}></span>
+                                            <span className="font-medium text-slate-600 truncate max-w-[80px]">{entry.name}</span>
                                         </div>
                                         <span className="font-mono font-bold" style={{ color: entry.color || entry.fill }}>{val}</span>
                                     </div>
@@ -166,7 +202,6 @@
         };
 
         const App = () => {
-            // UI State
             const [activeTab, setActiveTab] = useState('monteCarlo'); 
             const [auditStrategy, setAuditStrategy] = useState('guyton');
             const [simSeed, setSimSeed] = useState(0); 
@@ -175,14 +210,25 @@
             // General Settings
             const [initialCapital, setInitialCapital] = useState(2000); 
             const [initialWithdrawalRate, setInitialWithdrawalRate] = useState(4.0); 
+            
+            // Asset Allocation
+            const [stockRatio, setStockRatio] = useState(60);
+            
+            // Market Parameters
             const [cagr, setCagr] = useState(7.0); 
-            const [volatility, setVolatility] = useState(15.0); 
+            const [volatility, setVolatility] = useState(11.0); 
             const [inflation, setInflation] = useState(3.0); 
             const [years, setYears] = useState(30);
             const [simCount, setSimCount] = useState(1000);
-
-            // SORR 壓力測試開關
             const [sorrTest, setSorrTest] = useState(false);
+
+            // Handle Stock Ratio Change
+            const handleStockRatioChange = (newRatio) => {
+                setStockRatio(newRatio);
+                const params = getAssetAllocationParams(newRatio);
+                setCagr(params.r);
+                setVolatility(params.v);
+            };
 
             // Strategy Settings
             const [vanCeiling, setVanCeiling] = useState(5.0); 
@@ -206,12 +252,11 @@
                         const pathsNW = { baseline: [], vanguard: [], guyton: [] };
                         const pathsW = { baseline: [], vanguard: [], guyton: [] };
                         const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
-                        const pathsMR = []; // 記錄市場報酬軌跡
                         
                         let totals = {
-                            baseline: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0 },
-                            vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0 },
-                            guyton: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0 }
+                            baseline: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
+                            vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
+                            guyton: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] }
                         };
 
                         const auditData = [];
@@ -227,9 +272,7 @@
                                 const Z = randn_bm();
                                 let r = (cagr / 100) + (volatility / 100) * Z;
                                 
-                                if (sorrTest && t < 3) {
-                                    r = -0.15;
-                                }
+                                if (sorrTest && t < 3) { r = -0.15; }
 
                                 marketReturns.push(r);
                                 pathMarketReturn *= (1 + r);
@@ -239,9 +282,7 @@
                                 
                                 if (i === 0) {
                                     auditData.push({
-                                        year: t + 1,
-                                        marketReturn: r * 100,
-                                        inflationMult: currentInflFactor,
+                                        year: t + 1, marketReturn: r * 100, inflationMult: currentInflFactor,
                                         baseline: {}, vanguard: {}, guyton: {}
                                     });
                                 }
@@ -249,177 +290,104 @@
                             
                             universePerformances.push({ idx: i, totalReturn: pathMarketReturn });
 
-                            // --- 1. Baseline ---
-                            let nwBase = initialCapital;
-                            let wBase = 0;
-                            let deadBase = false;
-                            const pathNWBase = [];
-                            const pathWBase = [];
-                            let totWBase = 0;
+                            // Helper for single simulation path
+                            const simulateStrategy = (stratId, logicFn) => {
+                                let nw = initialCapital;
+                                let w = 0;
+                                let dead = false;
+                                const pathNW = [];
+                                const pathW = [];
+                                const pathRealW = [];
+                                let totW = 0;
 
-                            for (let t = 0; t < years; t++) {
-                                let currentBaseNote = '';
-                                
-                                if (t === 0) {
-                                    wBase = initialWithdrawal;
-                                    currentBaseNote = '初始提領';
-                                } else if (!deadBase) {
-                                    wBase = initialWithdrawal * inflFactors[t-1];
-                                    currentBaseNote = '依通膨調整';
-                                } else {
-                                    wBase = 0;
-                                    currentBaseNote = '資產耗盡';
-                                }
+                                for (let t = 0; t < years; t++) {
+                                    let currentNote = '';
+                                    const expectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t-1];
 
-                                const currentExpectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t-1];
-                                if (wBase < currentExpectedRealW - 0.1) totals.baseline.downgradedYears++;
-
-                                if (!deadBase) {
-                                    nwBase -= wBase;
-                                    if (nwBase <= 0) { nwBase = 0; deadBase = true; }
-                                    else { nwBase *= (1 + marketReturns[t]); }
-                                }
-                                
-                                totWBase += wBase;
-                                pathNWBase.push(nwBase);
-                                pathWBase.push(wBase);
-                                if (!deadBase) survivals.baseline[t+1]++;
-                                
-                                if (i === 0) {
-                                    auditData[t].baseline.nw = nwBase;
-                                    auditData[t].baseline.w = wBase;
-                                    auditData[t].baseline.note = currentBaseNote;
-                                }
-                            }
-                            if (nwBase <= 0) totals.baseline.dead++;
-                            totals.baseline.finalNW.push(nwBase);
-                            totals.baseline.totalWithdrawn.push(totWBase);
-                            pathsNW.baseline.push(pathNWBase);
-                            pathsW.baseline.push(pathWBase);
-
-                            // --- 2. Vanguard Dynamic Approach ---
-                            let nwVan = initialCapital;
-                            let wVan = 0;
-                            let deadVan = false;
-                            const pathNWVan = [];
-                            const pathWVan = [];
-                            let totWVan = 0;
-
-                            for (let t = 0; t < years; t++) {
-                                let currentVanNote = '';
-
-                                if (t === 0) {
-                                    wVan = initialWithdrawal;
-                                    currentVanNote = '初始提領';
-                                } else if (!deadVan) {
-                                    const expectedW = nwVan * (initialWithdrawalRate / 100); 
-                                    const prevActualW = pathWVan[t-1]; 
-                                    const maxW = prevActualW * (1 + vanCeiling / 100); 
-                                    const minW = prevActualW * (1 - vanFloor / 100);   
-                                    
-                                    const actualW = Math.min(Math.max(expectedW, minW), maxW);
-                                    
-                                    if (actualW === maxW && expectedW > maxW + 0.1) currentVanNote = '🟢觸發上限 (限縮提領)';
-                                    else if (actualW === minW && expectedW < minW - 0.1) currentVanNote = '🔴觸發下限 (保護下檔)';
-                                    else currentVanNote = '比例自然變動';
-                                    
-                                    wVan = actualW;
-                                } else {
-                                    wVan = 0;
-                                    currentVanNote = '資產耗盡';
-                                }
-
-                                const currentExpectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t-1];
-                                if (wVan < currentExpectedRealW - 0.1) totals.vanguard.downgradedYears++;
-
-                                if (!deadVan) {
-                                    nwVan -= wVan;
-                                    if (nwVan <= 0) { nwVan = 0; deadVan = true; }
-                                    else { nwVan *= (1 + marketReturns[t]); }
-                                }
-                                
-                                totWVan += wVan;
-                                pathNWVan.push(nwVan);
-                                pathWVan.push(wVan);
-                                if (!deadVan) survivals.vanguard[t+1]++;
-
-                                if (i === 0) {
-                                    auditData[t].vanguard.nw = nwVan;
-                                    auditData[t].vanguard.w = wVan;
-                                    auditData[t].vanguard.note = currentVanNote;
-                                }
-                            }
-                            if (nwVan <= 0) totals.vanguard.dead++;
-                            totals.vanguard.finalNW.push(nwVan);
-                            totals.vanguard.totalWithdrawn.push(totWVan);
-                            pathsNW.vanguard.push(pathNWVan);
-                            pathsW.vanguard.push(pathWVan);
-
-                            // --- 3. Guyton-Klinger Rule ---
-                            let nwGk = initialCapital;
-                            let wGk = 0;
-                            let deadGk = false;
-                            const pathNWGk = [];
-                            const pathWGk = [];
-                            let totWGk = 0;
-
-                            for (let t = 0; t < years; t++) {
-                                let currentGkNote = '';
-
-                                if (t === 0) {
-                                    wGk = initialWithdrawal;
-                                    currentGkNote = '初始提領';
-                                } else if (!deadGk) {
-                                    const prevPortReturn = marketReturns[t-1];
-                                    let nextW = pathWGk[t-1];
-                                    
-                                    if (prevPortReturn >= 0) { nextW = nextW * (1 + inflation / 100); currentGkNote = '隨通膨增加'; } 
-                                    else { currentGkNote = '❄️凍結通膨'; } 
-
-                                    const currentWithdrawalRate = (nextW / nwGk) * 100;
-                                    
-                                    if (prevPortReturn < 0 && currentWithdrawalRate > initialWithdrawalRate * (1 + gkCapPreserveThresh/100)) {
-                                        nextW = nextW * (1 - gkCapPreserveCut/100); 
-                                        currentGkNote += ' | 🔴保本刪減';
-                                    } else if (prevPortReturn > 0 && currentWithdrawalRate < initialWithdrawalRate * (1 - gkProsperityThresh/100)) {
-                                        nextW = nextW * (1 + gkProsperityHike/100); 
-                                        currentGkNote = '🟢繁榮加薪';
+                                    if (!dead) {
+                                        const res = logicFn(t, nw, pathW, marketReturns, inflFactors, expectedRealW);
+                                        w = res.w;
+                                        currentNote = res.note;
+                                    } else {
+                                        w = 0;
+                                        currentNote = '資產耗盡';
                                     }
 
-                                    wGk = nextW;
-                                } else {
-                                    wGk = 0;
-                                    currentGkNote = '資產耗盡';
-                                }
+                                    if (w < expectedRealW - 0.1) totals[stratId].downgradedYears++;
 
-                                const currentExpectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t-1];
-                                if (wGk < currentExpectedRealW - 0.1) totals.guyton.downgradedYears++;
-
-                                if (!deadGk) {
-                                    nwGk -= wGk;
-                                    if (nwGk <= 0) { nwGk = 0; deadGk = true; }
-                                    else { nwGk *= (1 + marketReturns[t]); }
+                                    if (!dead) {
+                                        nw -= w;
+                                        if (nw <= 0) { nw = 0; dead = true; }
+                                        else { nw *= (1 + marketReturns[t]); }
+                                    }
+                                    
+                                    totW += w;
+                                    pathNW.push(nw);
+                                    pathW.push(w);
+                                    // 記錄實質購買力提領額，用於計算 CV
+                                    pathRealW.push(t === 0 ? w : w / inflFactors[t-1]);
+                                    
+                                    if (!dead) survivals[stratId][t+1]++;
+                                    
+                                    if (i === 0) {
+                                        auditData[t][stratId].nw = nw;
+                                        auditData[t][stratId].w = w;
+                                        auditData[t][stratId].note = currentNote;
+                                    }
                                 }
                                 
-                                totWGk += wGk;
-                                pathNWGk.push(nwGk);
-                                pathWGk.push(wGk);
-                                if (!deadGk) survivals.guyton[t+1]++;
+                                if (nw <= 0) totals[stratId].dead++;
+                                totals[stratId].finalNW.push(nw);
+                                totals[stratId].totalWithdrawn.push(totW);
+                                pathsNW[stratId].push(pathNW);
+                                pathsW[stratId].push(pathW);
 
-                                if (i === 0) {
-                                    auditData[t].guyton.nw = nwGk;
-                                    auditData[t].guyton.w = wGk;
-                                    auditData[t].guyton.note = currentGkNote;
+                                // Calculate CV of real withdrawals for this path
+                                const meanW = pathRealW.reduce((a,b)=>a+b,0) / years;
+                                const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
+                                const stdW = Math.sqrt(varW);
+                                totals[stratId].wCVData.push(meanW > 0 ? (stdW / meanW) * 100 : 0);
+                            };
+
+                            // Run 1: Baseline
+                            simulateStrategy('baseline', (t, nw, histW, mr, inf, exp) => {
+                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+                                return { w: initialWithdrawal * inf[t-1], note: '依通膨調整' };
+                            });
+
+                            // Run 2: Vanguard
+                            simulateStrategy('vanguard', (t, nw, histW, mr, inf, exp) => {
+                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+                                const expectedW = nw * (initialWithdrawalRate / 100); 
+                                const prevActualW = histW[t-1]; 
+                                const maxW = prevActualW * (1 + vanCeiling / 100); 
+                                const minW = prevActualW * (1 - vanFloor / 100);   
+                                const actualW = Math.min(Math.max(expectedW, minW), maxW);
+                                
+                                let note = '比例自然變動';
+                                if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限 (限縮)';
+                                else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限 (保護)';
+                                return { w: actualW, note };
+                            });
+
+                            // Run 3: Guyton
+                            simulateStrategy('guyton', (t, nw, histW, mr, inf, exp) => {
+                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+                                const prevReturn = mr[t-1];
+                                let nextW = histW[t-1];
+                                let note = '';
+                                
+                                if (prevReturn >= 0) { nextW *= (1 + inflation / 100); note = '隨通膨增加'; } 
+                                else { note = '❄️凍結通膨'; } 
+
+                                const wr = (nextW / nw) * 100;
+                                if (prevReturn < 0 && wr > initialWithdrawalRate * (1 + gkCapPreserveThresh/100)) {
+                                    nextW *= (1 - gkCapPreserveCut/100); note += ' | 🔴保本刪減';
+                                } else if (prevReturn > 0 && wr < initialWithdrawalRate * (1 - gkProsperityThresh/100)) {
+                                    nextW *= (1 + gkProsperityHike/100); note = '🟢繁榮加薪';
                                 }
-                            }
-                            if (nwGk <= 0) totals.guyton.dead++;
-                            totals.guyton.finalNW.push(nwGk);
-                            totals.guyton.totalWithdrawn.push(totWGk);
-                            pathsNW.guyton.push(pathNWGk);
-                            pathsW.guyton.push(pathWGk);
-                            
-                            // 儲存每個宇宙的市場軌跡
-                            pathsMR.push(marketReturns);
+                                return { w: nextW, note };
+                            });
                         }
 
                         const chartDataNW = [];
@@ -447,55 +415,19 @@
                                 if (t < years) wAtT[strat] = pathsW[strat][medianUniverseIdx][t];
                             });
                             
-                            if (t < years) {
-                                nwAtT.marketReturn = pathsMR[medianUniverseIdx][t] * 100;
-                                wAtT.marketReturn = pathsMR[medianUniverseIdx][t] * 100;
-                            } else {
-                                nwAtT.marketReturn = 0;
-                            }
-                            
                             chartDataNW.push(nwAtT);
                             if (t < years) chartDataW.push(wAtT);
                         }
 
-                        // 計算提領變異係數 (CV) - 使用實質購買力
-                        const staticInflFactors = [];
-                        let curInf = 1;
-                        for (let t = 0; t < years; t++) {
-                            curInf *= (1 + (inflation / 100));
-                            staticInflFactors.push(curInf);
-                        }
-
                         const stats = {};
                         ['baseline', 'vanguard', 'guyton'].forEach(strat => {
-                            const finalNWs = totals[strat].finalNW.sort((a,b)=>a-b);
                             const totWs = totals[strat].totalWithdrawn.sort((a,b)=>a-b);
-                            
-                            const cvs = [];
-                            for (let i = 0; i < simCount; i++) {
-                                const wPath = pathsW[strat][i];
-                                const realWPath = wPath.map((w, t) => w / (t === 0 ? 1 : staticInflFactors[t-1]));
-                                
-                                const mean = realWPath.reduce((a, b) => a + b, 0) / years;
-                                if (mean > 0) {
-                                    const variance = realWPath.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / years;
-                                    const stdDev = Math.sqrt(variance);
-                                    cvs.push((stdDev / mean) * 100);
-                                } else {
-                                    cvs.push(0);
-                                }
-                            }
-                            cvs.sort((a, b) => a - b);
-                            const medianCV = cvs[Math.floor(simCount * 0.5)];
-
+                            const cvs = totals[strat].wCVData.sort((a,b)=>a-b);
                             stats[strat] = {
                                 successRate: ((simCount - totals[strat].dead) / simCount) * 100,
-                                p10NW: finalNWs[Math.floor(simCount * 0.1)],
-                                p50NW: finalNWs[Math.floor(simCount * 0.5)],
-                                p90NW: finalNWs[Math.floor(simCount * 0.9)],
                                 avgWithdrawn: totWs.reduce((a,b)=>a+b,0) / simCount,
                                 qolRate: 100 - ((totals[strat].downgradedYears / (simCount * years)) * 100),
-                                cvWithdrawn: medianCV
+                                medianCV: cvs[Math.floor(simCount / 2)] // 使用中位數避免極端值干擾
                             };
                         });
 
@@ -520,55 +452,32 @@
                 else if (viewMode === 'survival') { data = simResults.chartDataSurv; yAxisLabel = '資金存活機率 (%)'; }
 
                 const legendPayload = strategiesDef.map(s => ({
-                    id: s.id,
-                    type: 'circle',
-                    value: s.name.split(' ')[0],
-                    color: s.color
+                    id: s.id, type: 'circle', value: s.name.split(' ')[0], color: s.color
                 }));
 
                 return (
-                    <div className="h-[300px] sm:h-[400px] w-full mt-4">
+                    <div className="h-[300px] md:h-[400px] w-full mt-2 md:mt-4">
                         <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={data} margin={{ top: 20, right: 10, left: 10, bottom: 20 }}>
+                            <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis dataKey="year" label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#64748b' }} stroke="#cbd5e1" tick={{fontSize: 11, fill: '#64748b'}} tickMargin={10} />
+                                <XAxis dataKey="year" label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -15, fontSize: 10, fill: '#94a3b8' }} stroke="#cbd5e1" tick={{fontSize: 10, fill: '#94a3b8'}} tickMargin={8} minTickGap={15} />
                                 <YAxis 
-                                    yAxisId="left"
                                     stroke="#cbd5e1" 
                                     tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} 
-                                    label={{ value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 0, style: { textAnchor: 'middle', fontSize: 11, fill: '#64748b', fontWeight: 'bold' } }} 
+                                    width={45}
                                     domain={viewMode === 'survival' ? [0, 100] : ['auto', 'auto']}
-                                    tick={{fontSize: 11, fill: '#64748b'}}
-                                    width={50}
+                                    tick={{fontSize: 10, fill: '#94a3b8'}}
                                 />
-                                {viewMode !== 'survival' && (
-                                    <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 10, fill: '#cbd5e1'}} domain={['auto', 'auto']} width={40} />
-                                )}
                                 <RechartsTooltip content={<CustomTooltip />} />
-                                <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', paddingTop: '10px' }}/>
+                                <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}/>
                                 
-                                {viewMode !== 'survival' && (
-                                    <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
-                                )}
-
                                 {strategiesDef.map(s => (
-                                    <Line 
-                                        yAxisId="left"
-                                        key={`main_${s.id}`} 
-                                        type="monotone" 
-                                        dataKey={s.id} 
-                                        name={s.name.split(' ')[0]} 
-                                        stroke={s.color} 
-                                        strokeWidth={3} 
-                                        dot={false} 
-                                        activeDot={{ r: 6, strokeWidth: 0 }} 
-                                        legendType="none" 
-                                    />
+                                    <Line key={`main_${s.id}`} type="monotone" dataKey={s.id} name={s.name.split(' ')[0]} stroke={s.color} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} legendType="none" />
                                 ))}
                                 
-                                {viewMode === 'survival' && <ReferenceLine yAxisId="left" y={100} stroke="#e2e8f0" strokeDasharray="3 3" />}
-                                {viewMode !== 'survival' && <ReferenceLine yAxisId="left" y={0} stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" />}
-                            </ComposedChart>
+                                {viewMode === 'survival' && <ReferenceLine y={100} stroke="#e2e8f0" strokeDasharray="3 3" />}
+                                {viewMode !== 'survival' && <ReferenceLine y={0} stroke="#ef4444" strokeWidth={1} strokeDasharray="5 5" />}
+                            </LineChart>
                         </ResponsiveContainer>
                     </div>
                 );
@@ -587,139 +496,108 @@
                 }));
 
                 const legendPayload = strategiesDef.map(s => ({
-                    id: s.id,
-                    type: 'circle',
-                    value: s.name.split(' ')[0],
-                    color: s.color
+                    id: s.id, type: 'circle', value: s.name.split(' ')[0], color: s.color
                 }));
 
                 return (
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-auto md:h-[750px] animate-in fade-in" style={{ maxHeight: '85vh' }}>
-                        <div className="bg-slate-50 px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0 rounded-t-2xl">
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col animate-in fade-in h-auto md:h-[800px]">
+                        <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0 rounded-t-2xl">
                             <div>
-                                <h3 className="font-extrabold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
-                                    <FileSearch size={18} className="text-indigo-600 shrink-0"/> 單一隨機路徑詳細稽核
+                                <h3 className="font-extrabold text-slate-800 flex items-center gap-1.5 text-sm md:text-base">
+                                    <FileSearch size={16} className="text-indigo-600"/> 單一隨機路徑詳細稽核
                                 </h3>
-                                <p className="text-xs text-slate-500 mt-1">抽出單一平行宇宙，觀察在同樣的市場崩盤或大漲下，三種策略的動態表現。</p>
+                                <p className="text-[10px] md:text-xs text-slate-500 mt-1">抽出單一平行宇宙，觀察在同樣市場漲跌下的策略反應。</p>
                             </div>
-                            <div className="flex items-center gap-3 w-full sm:w-auto">
-                                <button 
-                                    onClick={() => setSimSeed(s => s + 1)}
-                                    className="flex w-full items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition-colors whitespace-nowrap shadow-sm"
-                                >
-                                    <RefreshCw size={14} className={isSimulating ? "animate-spin" : ""} /> 
-                                    重抽平行宇宙
-                                </button>
-                            </div>
+                            <button onClick={() => setSimSeed(s => s + 1)} className="w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs md:text-sm font-bold transition-colors whitespace-nowrap shadow-sm">
+                                <RefreshCw size={14} className={isSimulating ? "animate-spin" : ""} /> 重抽宇宙
+                            </button>
                         </div>
 
-                        {/* 行動端優化：水平排列按鈕，防止擠壓下方表格空間 */}
-                        <div className="px-4 py-3 bg-slate-50/50 flex flex-col lg:flex-row gap-3 shrink-0 border-b border-slate-200">
-                            <div className="flex items-center gap-2 w-full lg:w-auto overflow-x-auto no-scrollbar shrink-0">
-                                <span className="text-xs font-bold text-slate-500 shrink-0 hidden sm:block">稽核對象：</span>
-                                <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm w-full sm:w-auto min-w-max">
-                                    {strategiesDef.map(s => (
-                                        <button 
-                                            key={s.id}
-                                            onClick={() => setAuditStrategy(s.id)}
-                                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex-1 sm:flex-none text-center whitespace-nowrap ${auditStrategy === s.id ? 'bg-indigo-50 shadow-sm ring-1 ring-indigo-100' : 'hover:bg-slate-50 text-slate-500'}`}
-                                            style={{ color: auditStrategy === s.id ? s.color : undefined }}
-                                        >
-                                            {s.name.split(' ')[0]}
-                                        </button>
-                                    ))}
+                        <div className="p-3 md:p-4 border-b border-slate-100 shrink-0">
+                            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-2 px-1">
+                                <div className="text-xs md:text-sm font-bold text-slate-700">🌌 軌跡視覺化</div>
+                                <div className="bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner w-full md:w-auto self-start">
+                                    <button onClick={() => setAuditChartMode('netWorth')} className={`flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>比較淨值</button>
+                                    <button onClick={() => setAuditChartMode('withdrawal')} className={`flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>比較提領</button>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2.5 text-xs bg-white border border-slate-200 px-3 py-2.5 rounded-lg shadow-sm w-full lg:flex-1">
-                                <div className="p-1.5 rounded-md shrink-0" style={{ backgroundColor: `${stratInfo.color}15`, color: stratInfo.color }}>{stratInfo.icon}</div>
-                                <span className="text-slate-600 leading-relaxed m-auto w-full">{stratInfo.desc}</span>
-                            </div>
-                        </div>
-
-                        <div className="p-4 border-b border-slate-100 shrink-0">
-                            <div className="flex justify-between items-center mb-2 px-1">
-                                <div className="text-sm font-bold text-slate-700 hidden sm:block">🌌 單一宇宙軌跡視覺化</div>
-                                <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold shadow-inner w-full sm:w-auto">
-                                    <button onClick={() => setAuditChartMode('netWorth')} className={`flex-1 sm:flex-none px-3 py-1 rounded-md transition-all ${auditChartMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>比較淨值</button>
-                                    <button onClick={() => setAuditChartMode('withdrawal')} className={`flex-1 sm:flex-none px-3 py-1 rounded-md transition-all ${auditChartMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>比較提領額</button>
-                                </div>
-                            </div>
-                            {/* 行動端優化：稍微縮減圖表高度，把空間還給下方表格 */}
-                            <div className="h-[180px] sm:h-[220px] w-full relative">
-                                {isSimulating && (
-                                    <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-20 flex items-center justify-center">
-                                        <Activity className="animate-pulse text-indigo-400" size={24} />
-                                    </div>
-                                )}
+                            <div className="h-[200px] md:h-[250px] w-full relative mt-4">
+                                {isSimulating && <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-20 flex items-center justify-center"><Activity className="animate-pulse text-indigo-400" size={24} /></div>}
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={auditChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                    <ComposedChart data={auditChartData} margin={{ top: 5, right: -15, left: -25, bottom: 0 }}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                        <XAxis dataKey="year" tick={{fontSize: 10, fill: '#94a3b8'}} tickMargin={5} />
-                                        <YAxis yAxisId="left" type="number" tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} tick={{fontSize: 10, fill: '#64748b', fontWeight: 'bold'}} width={45} />
-                                        <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 10, fill: '#cbd5e1'}} domain={['auto', 'auto']} width={35} />
+                                        <XAxis dataKey="year" tick={{fontSize: 9, fill: '#94a3b8'}} tickMargin={5} minTickGap={10} />
+                                        <YAxis yAxisId="left" type="number" tickFormatter={(val) => val >= 10000 ? (val/10000).toFixed(0)+'億' : val} tick={{fontSize: 9, fill: '#64748b', fontWeight: 'bold'}} width={40} />
+                                        <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => val.toFixed(0)+'%'} tick={{fontSize: 9, fill: '#cbd5e1'}} domain={['auto', 'auto']} width={35} />
                                         <RechartsTooltip content={<CustomTooltip />} />
-                                        <Legend payload={legendPayload} verticalAlign="top" height={30} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', paddingTop: '5px' }}/>
+                                        <Legend payload={legendPayload} verticalAlign="top" height={24} wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}/>
                                         
                                         <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
-                                        
-                                        <Line yAxisId="left" type="monotone" dataKey="baseline" name="傳統4%法則" stroke="#94a3b8" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} legendType="none" />
-                                        <Line yAxisId="left" type="monotone" dataKey="vanguard" name="Vanguard" stroke="#0ea5e9" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} legendType="none" />
-                                        <Line yAxisId="left" type="monotone" dataKey="guyton" name="Guyton-Klinger" stroke="#f59e0b" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} legendType="none" />
+                                        <Line yAxisId="left" type="monotone" dataKey="baseline" name="傳統" stroke="#94a3b8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
+                                        <Line yAxisId="left" type="monotone" dataKey="vanguard" name="Vanguard" stroke="#0ea5e9" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
+                                        <Line yAxisId="left" type="monotone" dataKey="guyton" name="Guyton" stroke="#f59e0b" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
                                     </ComposedChart>
                                 </ResponsiveContainer>
                             </div>
                         </div>
+                        
+                        {/* 手機優化：水平滾動的按鈕列 */}
+                        <div className="bg-slate-50/50 flex flex-col shrink-0 border-b border-slate-200">
+                            <div className="flex overflow-x-auto no-scrollbar px-3 py-2 gap-2 border-b border-slate-100">
+                                {strategiesDef.map(s => (
+                                    <button 
+                                        key={s.id}
+                                        onClick={() => setAuditStrategy(s.id)}
+                                        className={`shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all border ${auditStrategy === s.id ? 'bg-white border-slate-300 shadow-sm' : 'border-transparent text-slate-500'}`}
+                                        style={{ color: auditStrategy === s.id ? s.color : undefined }}
+                                    >
+                                        {s.name}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="p-3 text-xs text-slate-600 bg-white m-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3">
+                                <div className="p-1.5 rounded-md shrink-0 bg-slate-50" style={{ color: stratInfo.color }}>{stratInfo.icon}</div>
+                                <span className="leading-relaxed">{stratInfo.desc}</span>
+                            </div>
+                        </div>
 
-                        {/* 行動端優化：強制表格能左右滑動，不被壓縮 */}
-                        <div className="flex-1 overflow-auto custom-scroll relative bg-white rounded-b-2xl">
-                            <table className="w-full text-sm text-left whitespace-nowrap min-w-[700px]">
-                                <thead className="text-xs font-extrabold text-slate-500 bg-slate-50 sticky top-0 z-20 shadow-sm border-b border-slate-200">
-                                    <tr>
-                                        <th className="px-4 py-3 sticky-col text-center w-16">年次</th>
-                                        <th className="px-4 py-3 text-right">當年市場報酬</th>
-                                        <th className="px-4 py-3 text-right">累積通膨倍數</th>
-                                        <th className="px-4 py-3 text-right border-l border-slate-200 bg-white">實領生活費</th>
-                                        <th className="px-4 py-3 text-right bg-white">期末淨值</th>
-                                        <th className="px-4 py-3 text-left w-1/3 bg-white">【{stratInfo.name.split(' ')[0]}】觸發狀態備註</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {simResults.auditData.map((row, idx) => {
-                                        const sData = row[auditStrategy];
-                                        const isNegativeMarket = row.marketReturn < 0;
-                                        const isDead = sData.nw <= 0;
-                                        return (
-                                            <tr key={idx} className={`hover:bg-slate-50/80 transition-colors ${isDead ? 'opacity-50 bg-rose-50/20' : ''}`}>
-                                                <td className="px-4 py-3 sticky-col text-center font-bold text-slate-600 border-r border-slate-100">
-                                                    第 {row.year} 年
-                                                </td>
-                                                <td className={`px-4 py-3 text-right font-mono font-bold ${isNegativeMarket ? 'text-rose-500' : 'text-emerald-600'}`}>
-                                                    {row.marketReturn > 0 ? '+' : ''}{row.marketReturn.toFixed(1)}%
-                                                </td>
-                                                <td className="px-4 py-3 text-right font-mono text-slate-500">
-                                                    {row.inflationMult.toFixed(2)}x
-                                                </td>
-                                                <td className="px-4 py-3 text-right font-mono font-bold border-l border-slate-100 bg-slate-50/30" style={{ color: isDead ? '#94a3b8' : stratInfo.color }}>
-                                                    {Math.round(sData.w).toLocaleString()} 萬
-                                                </td>
-                                                <td className="px-4 py-3 text-right font-mono font-bold text-slate-700">
-                                                    {Math.round(sData.nw).toLocaleString()} 萬
-                                                </td>
-                                                <td className="px-4 py-3 text-left">
-                                                    <span className={`inline-block px-2 py-1 rounded text-[11px] font-bold ${
-                                                        sData.note.includes('🔴') || sData.note.includes('耗盡') ? 'bg-rose-100 text-rose-700' :
-                                                        sData.note.includes('🟢') || sData.note.includes('加薪') ? 'bg-emerald-100 text-emerald-700' :
-                                                        sData.note.includes('❄️') ? 'bg-sky-100 text-sky-700' :
-                                                        'bg-slate-100 text-slate-600'
-                                                    }`}>
-                                                        {sData.note}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                        {/* 手機優化：設定 min-width 確保表格可水平滑動不擠壓 */}
+                        <div className="flex-1 overflow-auto custom-scroll relative bg-white">
+                            <div className="min-w-[600px]">
+                                <table className="w-full text-xs md:text-sm text-left whitespace-nowrap">
+                                    <thead className="font-extrabold text-slate-500 sticky-header bg-slate-50 shadow-sm border-b border-slate-200">
+                                        <tr>
+                                            <th className="px-3 md:px-4 py-2.5 sticky-col text-center w-12 md:w-16">年次</th>
+                                            <th className="px-3 md:px-4 py-2.5 text-right">市場報酬</th>
+                                            <th className="px-3 md:px-4 py-2.5 text-right">累積通膨</th>
+                                            <th className="px-3 md:px-4 py-2.5 text-right border-l border-slate-200 bg-white">實領生活費</th>
+                                            <th className="px-3 md:px-4 py-2.5 text-right bg-white">期末淨值</th>
+                                            <th className="px-3 md:px-4 py-2.5 text-left w-1/3 bg-white">狀態備註</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {simResults.auditData.map((row, idx) => {
+                                            const sData = row[auditStrategy];
+                                            const isNegativeMarket = row.marketReturn < 0;
+                                            const isDead = sData.nw <= 0;
+                                            return (
+                                                <tr key={idx} className={`hover:bg-slate-50/80 ${isDead ? 'opacity-50 bg-rose-50/20' : ''}`}>
+                                                    <td className="px-3 md:px-4 py-2 sticky-col text-center font-bold text-slate-600 border-r border-slate-100">第 {row.year} 年</td>
+                                                    <td className={`px-3 md:px-4 py-2 text-right font-mono font-bold ${isNegativeMarket ? 'text-rose-500' : 'text-emerald-600'}`}>{row.marketReturn > 0 ? '+' : ''}{row.marketReturn.toFixed(1)}%</td>
+                                                    <td className="px-3 md:px-4 py-2 text-right font-mono text-slate-500">{row.inflationMult.toFixed(2)}x</td>
+                                                    <td className="px-3 md:px-4 py-2 text-right font-mono font-bold border-l border-slate-100 bg-slate-50/30" style={{ color: isDead ? '#94a3b8' : stratInfo.color }}>{Math.round(sData.w).toLocaleString()}</td>
+                                                    <td className="px-3 md:px-4 py-2 text-right font-mono font-bold text-slate-700">{Math.round(sData.nw).toLocaleString()}</td>
+                                                    <td className="px-3 md:px-4 py-2 text-left">
+                                                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] md:text-[11px] font-bold ${sData.note.includes('🔴') || sData.note.includes('耗盡') ? 'bg-rose-100 text-rose-700' : sData.note.includes('🟢') ? 'bg-emerald-100 text-emerald-700' : sData.note.includes('❄️') ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                            {sData.note}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 );
@@ -733,55 +611,51 @@
                     guyton: simResults?.stats?.guyton?.successRate || 0,
                 },
                 {
-                    name: '預期生活品質佔比',
+                    name: '生活品質佔比',
                     baseline: simResults?.stats?.baseline?.qolRate || 0,
                     vanguard: simResults?.stats?.vanguard?.qolRate || 0,
                     guyton: simResults?.stats?.guyton?.qolRate || 0,
                 },
                 {
-                    name: '提領變異係數',
-                    baseline: simResults?.stats?.baseline?.cvWithdrawn || 0,
-                    vanguard: simResults?.stats?.vanguard?.cvWithdrawn || 0,
-                    guyton: simResults?.stats?.guyton?.cvWithdrawn || 0,
+                    name: '提領波動度',
+                    baseline: simResults?.stats?.baseline?.medianCV || 0,
+                    vanguard: simResults?.stats?.vanguard?.medianCV || 0,
+                    guyton: simResults?.stats?.guyton?.medianCV || 0,
                 }
             ];
 
             return (
-                <div className="max-w-[1400px] mx-auto p-3 md:p-5 lg:p-6 pb-20">
-                    <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+                <div className="max-w-[1400px] mx-auto p-2 md:p-5 lg:p-6 pb-20">
+                    <header className="mb-4 md:mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 px-2 md:px-0">
                         <div>
-                            {/* 行動端優化：聰明換行 */}
-                            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex flex-wrap items-center gap-2">
+                            <h1 className="text-xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2 md:gap-3">
                                 <Activity className="w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0" />
-                                <span>退休動態提領模擬器</span> 
-                                <span className="text-xs md:text-lg font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded whitespace-nowrap">v4.0</span>
+                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v3.9</span></span>
                             </h1>
-                            <p className="text-slate-500 mt-2 font-medium text-sm leading-relaxed">
-                                結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的<span className="whitespace-nowrap">壓力測試平台</span>。
+                            <p className="text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep">
+                                結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。<span className="md:hidden text-indigo-400">(建議橫向瀏覽)</span>
                             </p>
                         </div>
                         <button 
                             onClick={() => setShowDefinitions(!showDefinitions)}
-                            className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm w-full md:w-auto shrink-0"
+                            className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm shrink-0"
                         >
-                            <BookOpen size={18} /> 
+                            <BookOpen size={16} /> 
                             {showDefinitions ? '隱藏計算原理' : '📖 展開策略計算原理'}
                         </button>
                     </header>
 
                     {showDefinitions && (
-                        <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0">
                             {strategiesDef.map(s => (
-                                <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-3 transition-all hover:shadow-md">
+                                <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-3">
                                     <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
                                         <div className="p-1.5 rounded-lg" style={{ backgroundColor: `${s.color}15`, color: s.color }}>{s.icon}</div>
                                         <h3 className="font-bold text-slate-800 text-sm">{s.name}</h3>
                                     </div>
                                     <p className="text-[11px] text-slate-600 leading-relaxed">{s.desc}</p>
                                     <div className="bg-slate-50 rounded-lg p-3 mt-auto border border-slate-100">
-                                        <div className="text-[10px] font-extrabold text-slate-500 mb-2 flex items-center gap-1.5">
-                                            <Settings size={12}/> 演算法運算邏輯：
-                                        </div>
+                                        <div className="text-[10px] font-extrabold text-slate-500 mb-2 flex items-center gap-1.5"><Settings size={12}/> 演算法運算邏輯：</div>
                                         <ol className="text-[10px] text-slate-700 list-decimal pl-4 space-y-1.5 font-mono leading-tight">
                                             {s.calcSteps.map((step, i) => <li key={i} className="pl-1">{step}</li>)}
                                         </ol>
@@ -791,57 +665,74 @@
                         </div>
                     )}
 
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative">
-                        <div className="lg:col-span-4 flex flex-col gap-5 lg:sticky lg:top-6 lg:h-[calc(100vh-120px)] lg:overflow-y-auto custom-scroll pr-1">
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                                <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
-                                    <Settings className="w-4 h-4 text-slate-500"/> 市場模擬參數與資產
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 relative">
+                        {/* 左側參數面板 */}
+                        <div className="lg:col-span-4 flex flex-col gap-4 md:gap-5 lg:sticky lg:top-4 lg:h-[calc(100vh-40px)] lg:overflow-y-auto custom-scroll pr-1 px-2 md:px-0">
+                            
+                            <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
+                                <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
+                                    <PieChart className="w-4 h-4 text-indigo-500"/> 資產配置與市場環境
                                 </h3>
-                                <div className="grid grid-cols-1 gap-3">
-                                    <InputSlider label="退休初始資產" value={initialCapital} setter={setInitialCapital} min={1000} max={20000} step={500} suffix="萬" highlight={true} color="indigo" />
-                                    <InputSlider label="初始提領率 (首年)" value={initialWithdrawalRate} setter={setInitialWithdrawalRate} min={2.0} max={8.0} step={0.1} suffix="%" color="indigo" />
-                                </div>
-                                <div className="grid grid-cols-2 gap-3 mt-3">
-                                    <InputSlider label="預期年化報酬" value={cagr} setter={setCagr} min={0} max={15} step={0.5} suffix="%" color="indigo" />
-                                    <InputSlider label="投資組合波動率" value={volatility} setter={setVolatility} min={5} max={30} step={1} suffix="%" color="indigo" />
-                                </div>
-                                <div className="grid grid-cols-2 gap-3 mt-3">
-                                    <InputSlider label="平均通膨率" value={inflation} setter={setInflation} min={0} max={10} step={0.5} suffix="%" color="indigo" />
-                                    <InputSlider label="模擬年限" value={years} setter={setYears} min={10} max={50} step={5} suffix="年" color="indigo" />
+                                
+                                <div className="mb-4">
+                                    <InputSlider 
+                                        label="股票配置比例" value={stockRatio} setter={handleStockRatioChange} 
+                                        min={0} max={100} step={10} suffix="%" color="emerald"
+                                        info="自動連動歷史平均預期報酬與波動率（基於全球股/美債長期模型）" 
+                                    />
+                                    <div className="flex justify-between px-2 mt-1 text-[10px] text-slate-400 font-medium">
+                                        <span>保守 (多債)</span><span>積極 (多股)</span>
+                                    </div>
                                 </div>
 
-                                <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
+                                <div className="grid grid-cols-2 gap-2 md:gap-3 mb-4">
+                                    <InputSlider label="預期年化報酬" value={cagr} setter={setCagr} min={0} max={15} step={0.1} suffix="%" />
+                                    <InputSlider label="投資組合波動" value={volatility} setter={setVolatility} min={0} max={30} step={0.1} suffix="%" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 md:gap-3 mb-4">
+                                    <InputSlider label="平均通膨率" value={inflation} setter={setInflation} min={0} max={10} step={0.5} suffix="%" />
+                                    <InputSlider label="模擬年限" value={years} setter={setYears} min={10} max={50} step={5} suffix="年" />
+                                </div>
+
+                                <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                                     <div className="flex flex-col">
-                                        <span className="text-sm font-bold text-rose-600 flex items-center gap-1"><TrendingUp size={14} className="rotate-180"/> 壓力測試：報酬順序風險</span>
-                                        <span className="text-[10px] text-slate-500 mt-0.5">強制前三年市場大跌 (-15%)，測試防禦力</span>
+                                        <span className="text-[11px] md:text-sm font-bold text-rose-600 flex items-center gap-1"><TrendingUp size={14} className="rotate-180"/> 壓力測試：報酬順序風險</span>
+                                        <span className="text-[9px] md:text-[10px] text-slate-500 mt-0.5">強制前三年大跌 (-15%)，測試防禦力</span>
                                     </div>
-                                    <button 
-                                        onClick={() => setSorrTest(!sorrTest)}
-                                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${sorrTest ? 'bg-rose-500' : 'bg-slate-300'}`}
-                                    >
-                                        <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${sorrTest ? 'translate-x-5' : 'translate-x-0'}`} />
+                                    <button onClick={() => setSorrTest(!sorrTest)} className={`relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${sorrTest ? 'bg-rose-500' : 'bg-slate-300'}`}>
+                                        <span className={`pointer-events-none inline-block h-4 md:h-5 w-4 md:w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${sorrTest ? 'translate-x-4 md:translate-x-5' : 'translate-x-0'}`} />
                                     </button>
                                 </div>
                             </div>
 
-                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                                <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
-                                    <Scale className="w-4 h-4 text-slate-500"/> 動態護欄策略參數
+                            <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
+                                <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
+                                    <Settings className="w-4 h-4 text-slate-500"/> 個人退休計畫
                                 </h3>
-                                
+                                <div className="grid grid-cols-1 gap-3">
+                                    <InputSlider label="退休初始資產" value={initialCapital} setter={setInitialCapital} min={1000} max={20000} step={500} suffix="萬" color="indigo" />
+                                    <InputSlider label="初始提領率 (首年)" value={initialWithdrawalRate} setter={setInitialWithdrawalRate} min={2.0} max={8.0} step={0.1} suffix="%" color="indigo" />
+                                </div>
+                            </div>
+
+                            <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
+                                <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
+                                    <Scale className="w-4 h-4 text-slate-500"/> 動態護欄閥值微調
+                                </h3>
                                 <div className="mb-5">
-                                    <h4 className="text-xs font-bold text-sky-700 mb-2 flex items-center gap-1"><ShieldCheck size={14}/> Vanguard 變動護欄</h4>
+                                    <h4 className="text-[11px] md:text-xs font-bold text-sky-700 mb-2 flex items-center gap-1"><ShieldCheck size={14}/> Vanguard</h4>
                                     <div className="grid grid-cols-2 gap-2">
                                         <InputSlider label="提領增加上限" value={vanCeiling} setter={setVanCeiling} min={0} max={15} step={0.5} suffix="%" color="sky" />
                                         <InputSlider label="提領減少下限" value={vanFloor} setter={setVanFloor} min={0} max={15} step={0.5} suffix="%" color="sky" />
                                     </div>
                                 </div>
-
                                 <div className="pt-4 border-t border-slate-100">
-                                    <h4 className="text-xs font-bold text-amber-700 mb-2 flex items-center gap-1"><TrendingUp size={14}/> Guyton-Klinger 決策閥值</h4>
-                                    <div className="grid grid-cols-2 gap-2">
+                                    <h4 className="text-[11px] md:text-xs font-bold text-amber-700 mb-2 flex items-center gap-1"><TrendingUp size={14}/> Guyton-Klinger</h4>
+                                    <div className="grid grid-cols-2 gap-2 mb-2">
                                         <InputSlider label="保本:觸發閥值" value={gkCapPreserveThresh} setter={setGkCapPreserveThresh} min={0} max={50} step={5} suffix="%" color="amber" info="提領率相對初始攀升X%時觸發" />
                                         <InputSlider label="保本:削減提領" value={gkCapPreserveCut} setter={setGkCapPreserveCut} min={0} max={30} step={5} suffix="%" color="amber" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
                                         <InputSlider label="繁榮:觸發閥值" value={gkProsperityThresh} setter={setGkProsperityThresh} min={0} max={50} step={5} suffix="%" color="amber" info="提領率相對初始下降X%時觸發" />
                                         <InputSlider label="繁榮:增加提領" value={gkProsperityHike} setter={setGkProsperityHike} min={0} max={30} step={5} suffix="%" color="amber" />
                                     </div>
@@ -849,190 +740,134 @@
                             </div>
                         </div>
 
-                        <div className="lg:col-span-8 flex flex-col gap-5">
-                            <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1.5 gap-1 font-bold text-sm">
-                                <button 
-                                    onClick={() => setActiveTab('monteCarlo')} 
-                                    className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'monteCarlo' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-                                >
-                                    <ChartIcon size={16} className="shrink-0" /> <span className="hidden sm:inline">📈 蒙地卡羅報表 ({simCount}次)</span><span className="sm:hidden">蒙地卡羅</span>
+                        {/* 右側圖表區 */}
+                        <div className="lg:col-span-8 flex flex-col gap-4 md:gap-5 px-2 md:px-0">
+                            <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1.5 gap-1 font-bold text-xs md:text-sm">
+                                <button onClick={() => setActiveTab('monteCarlo')} className={`flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'monteCarlo' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
+                                    <ChartIcon size={16} /> <span className="hidden sm:inline">📈</span> 蒙地卡羅報表
                                 </button>
-                                <button 
-                                    onClick={() => setActiveTab('auditTrail')} 
-                                    className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'auditTrail' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-                                >
-                                    <FileSearch size={16} className="shrink-0" /> <span className="hidden sm:inline">🔍 單一宇宙深度稽核</span><span className="sm:hidden">單一宇宙稽核</span>
+                                <button onClick={() => setActiveTab('auditTrail')} className={`flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'auditTrail' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
+                                    <FileSearch size={16} /> <span className="hidden sm:inline">🔍</span> 深度稽核
                                 </button>
                             </div>
 
                             {activeTab === 'monteCarlo' ? (
-                                <div className="space-y-5 animate-in fade-in zoom-in-95 duration-200">
-                                    
-                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
-                                        <div className="bg-slate-50 px-5 py-4 border-b border-slate-200 flex justify-between items-center">
-                                            <h3 className="font-extrabold text-slate-800 text-sm">壓力測試結算報告 (第 {years} 年)</h3>
-                                            <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded hidden sm:block">總模擬數: {simCount}次</span>
+                                <div className="space-y-4 md:space-y-5 animate-in fade-in zoom-in-95 duration-200">
+                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-5">
+                                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+                                            <h2 className="text-sm md:text-lg font-extrabold text-slate-800 flex items-center gap-1.5">
+                                                資產與提領趨勢 
+                                                <span className="text-[10px] md:text-xs font-medium text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded ml-1 group relative cursor-help">
+                                                    典型宇宙 P50
+                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal break-words">
+                                                        將 1000 個宇宙依市場績效排序，挑選出最典型的單一市場宇宙，觀察三種策略在相同漲跌下的表現差異。
+                                                    </div>
+                                                </span>
+                                            </h2>
+                                            <div className="bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner">
+                                                <button onClick={() => setViewMode('netWorth')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>淨值</button>
+                                                <button onClick={() => setViewMode('withdrawal')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>提領</button>
+                                                <button onClick={() => setViewMode('survival')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>存活率</button>
+                                            </div>
+                                        </div>
+                                        {isSimulating ? <div className="h-[300px] md:h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg"><Activity className="animate-pulse text-indigo-400" size={32} /></div> : renderChart()}
+                                    </div>
+
+                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                        <div className="bg-slate-50 px-4 md:px-5 py-3 md:py-4 border-b border-slate-200 flex justify-between items-center">
+                                            <h3 className="font-extrabold text-slate-800 text-sm md:text-base">壓力測試結算報告</h3>
+                                            <span className="text-[10px] md:text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded">第 {years} 年 | 模擬 {simCount} 次</span>
                                         </div>
                                         
-                                        <div className="p-4 sm:p-5 border-b border-slate-100 bg-white">
-                                            <h4 className="text-sm font-bold text-slate-700 mb-1 text-center sm:text-left">生存率 vs 生活品質對比</h4>
-                                            <p className="text-[11px] text-slate-500 mb-4 text-center sm:text-left">動態提領的本質，就是用「犧牲部分年份的購買力(生活降級)」來換取「極高的資金存活率」的等價交換。</p>
-                                            <div className="h-[250px] w-full">
+                                        <div className="p-4 md:p-5 border-b border-slate-100 bg-white">
+                                            <h4 className="text-xs md:text-sm font-bold text-slate-700 mb-1">生存 vs 痛苦指數</h4>
+                                            <div className="h-[200px] md:h-[250px] w-full mt-4">
                                                 <ResponsiveContainer width="100%" height="100%">
-                                                    <BarChart data={barChartData} margin={{ top: 20, right: 10, left: -20, bottom: 0 }} barGap={2} barCategoryGap="15%">
+                                                    <BarChart data={barChartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }} barGap={2} barCategoryGap="15%">
                                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                        <XAxis dataKey="name" tick={{fontSize: 11, fill: '#64748b', fontWeight: 'bold'}} axisLine={false} tickLine={false} />
-                                                        <YAxis tickFormatter={(val) => `${val}%`} tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} domain={[0, 100]} />
-                                                        <RechartsTooltip 
-                                                            cursor={{fill: '#f8fafc'}}
-                                                            content={({active, payload}) => {
-                                                                if (active && payload && payload.length) {
-                                                                    return (
-                                                                        <div className="bg-white/95 backdrop-blur p-3 border border-slate-200 shadow-xl rounded-xl text-xs z-50">
-                                                                            <p className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-1">{payload[0].payload.name}</p>
-                                                                            <div className="space-y-2">
-                                                                                {payload.map((entry, index) => {
-                                                                                    const strategyInfo = strategiesDef.find(s => s.id === entry.dataKey);
-                                                                                    return (
-                                                                                        <div key={index} className="flex justify-between gap-6 items-center">
-                                                                                            <div className="flex items-center gap-2">
-                                                                                                <span className="w-2.5 h-2.5 rounded-sm" style={{backgroundColor: entry.color}}></span>
-                                                                                                <span className="font-medium text-slate-600">{strategyInfo ? strategyInfo.name.split(' ')[0] : entry.dataKey}</span>
-                                                                                            </div>
-                                                                                            <span className="font-mono font-bold text-slate-700">{entry.value.toFixed(1)}%</span>
-                                                                                        </div>
-                                                                                    );
-                                                                                })}
-                                                                            </div>
-                                                                        </div>
-                                                                    )
-                                                                }
-                                                                return null;
-                                                            }}
-                                                        />
-                                                        <Legend 
-                                                            verticalAlign="top" 
-                                                            wrapperStyle={{ paddingBottom: '10px' }}
-                                                            content={(props) => {
+                                                        <XAxis dataKey="name" tick={{fontSize: 10, fill: '#64748b', fontWeight: 'bold'}} axisLine={false} tickLine={false} />
+                                                        <YAxis tickFormatter={(val) => `${val}%`} tick={{fontSize: 9, fill: '#94a3b8'}} axisLine={false} tickLine={false} />
+                                                        <RechartsTooltip cursor={{fill: '#f8fafc'}} content={({active, payload}) => {
+                                                            if (active && payload && payload.length) {
                                                                 return (
-                                                                    <div className="flex flex-wrap justify-center gap-3 sm:gap-4 mb-4">
-                                                                        {strategiesDef.map(s => (
-                                                                            <div key={s.id} className="flex items-center gap-1.5 shrink-0">
-                                                                                <span className="w-3 h-3 rounded-full" style={{backgroundColor: s.color}}></span>
-                                                                                <span className="text-[11px] font-bold text-slate-600">{s.name.split(' ')[0]}</span>
-                                                                            </div>
-                                                                        ))}
+                                                                    <div className="bg-white/95 backdrop-blur p-2.5 border border-slate-200 shadow-xl rounded-xl text-xs z-50">
+                                                                        <p className="font-bold text-slate-700 mb-1.5 border-b border-slate-100 pb-1">{payload[0].payload.name}</p>
+                                                                        <div className="space-y-1.5">
+                                                                            {payload.map((entry, index) => (
+                                                                                <div key={index} className="flex justify-between gap-4 items-center">
+                                                                                    <div className="flex items-center gap-1.5">
+                                                                                        <span className="w-2 h-2 rounded-sm" style={{backgroundColor: entry.color}}></span>
+                                                                                        <span className="font-medium text-slate-600">{strategiesDef.find(s => s.id === entry.dataKey)?.name.split(' ')[0]}</span>
+                                                                                    </div>
+                                                                                    <span className="font-mono font-bold text-slate-700">{entry.value.toFixed(1)}%</span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
                                                                     </div>
-                                                                );
-                                                            }}
-                                                        />
-                                                        {strategiesDef.map(s => (
-                                                            <Bar key={s.id} dataKey={s.id} name={s.name.split(' ')[0]} fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={45} animationDuration={1000} />
-                                                        ))}
+                                                                )
+                                                            } return null;
+                                                        }} />
+                                                        <Legend verticalAlign="top" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', paddingBottom: '10px' }} content={() => (
+                                                            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5">
+                                                                {strategiesDef.map(s => (
+                                                                    <div key={s.id} className="flex items-center gap-1">
+                                                                        <span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: s.color}}></span>
+                                                                        <span className="text-[10px] text-slate-600">{s.name.split(' ')[0]}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )} />
+                                                        {strategiesDef.map(s => <Bar key={s.id} dataKey={s.id} fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={800} />)}
                                                     </BarChart>
                                                 </ResponsiveContainer>
                                             </div>
                                         </div>
 
-                                        {/* 行動端優化：強制表格能左右滑動，不被壓縮 */}
-                                        <div className="overflow-x-auto custom-scroll w-full">
-                                            <table className="w-full text-sm text-center whitespace-nowrap min-w-[700px]">
-                                                <thead className="text-xs font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200">
-                                                    <tr>
-                                                        <th className="px-4 py-3 sticky-col-header text-center bg-slate-50 border-r border-slate-100">策略</th>
-                                                        <th className="px-4 py-3 text-center text-emerald-700 bg-emerald-50/50">存活率</th>
-                                                        <th className="px-4 py-3 text-center text-blue-700 bg-blue-50/50">
-                                                            <div>預期生活品質佔比</div>
-                                                            <div className="text-[9px] font-normal text-blue-600/70 mt-0.5">(維持或超越首年購買力)</div>
-                                                        </th>
-                                                        <th className="px-4 py-3 text-center text-amber-700 bg-amber-50/50">
-                                                            <div>提領變異係數 (CV)</div>
-                                                            <div className="text-[9px] font-normal text-amber-600/70 mt-0.5">(越低越穩，生活費不亂跳)</div>
-                                                        </th>
-                                                        <th className="px-4 py-3 text-center text-slate-600">生涯總提領均值</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100">
-                                                    {strategiesDef.map(s => {
-                                                        const stat = simResults?.stats?.[s.id];
-                                                        if (!stat) return null;
-                                                        return (
-                                                            <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
-                                                                <td className="px-4 py-4 font-bold flex items-center justify-center gap-2 sticky-col border-r border-slate-100" style={{ color: s.color }}>
-                                                                    {s.icon} <span className="hidden sm:inline">{s.name.split(' ')[0]}</span><span className="sm:hidden">{s.id === 'guyton' ? 'Guyton' : s.name.split(' ')[0]}</span>
-                                                                </td>
-                                                                <td className="px-4 py-4 text-center font-mono font-bold text-emerald-700 bg-emerald-50/30">
-                                                                    {stat.successRate.toFixed(1)}%
-                                                                </td>
-                                                                <td className="px-4 py-4 text-center font-mono font-bold text-blue-700 bg-blue-50/30">
-                                                                    {stat.qolRate.toFixed(1)}%
-                                                                </td>
-                                                                <td className="px-4 py-4 text-center font-mono font-bold text-amber-700 bg-amber-50/30">
-                                                                    {stat.cvWithdrawn.toFixed(1)}%
-                                                                </td>
-                                                                <td className="px-4 py-4 text-center font-mono text-slate-700">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-5">
-                                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
-                                            <h2 className="text-base sm:text-lg font-extrabold text-slate-800 flex items-center gap-2">
-                                                資產與提領趨勢 
-                                                <span className="text-xs font-medium text-slate-400 cursor-help underline decoration-slate-300 underline-offset-4" onClick={() => alert("將 1000 個宇宙的市場績效排序，挑選出市場表現落在正中間的「典型宇宙」，並觀察三種策略在相同市場漲跌下的表現差異")}>(典型宇宙 P50)</span>
-                                            </h2>
-                                            <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold shadow-inner w-full sm:w-auto">
-                                                <button onClick={() => setViewMode('netWorth')} className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md transition-all ${viewMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>資產淨值</button>
-                                                <button onClick={() => setViewMode('withdrawal')} className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md transition-all ${viewMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>實際提領</button>
-                                                <button onClick={() => setViewMode('survival')} className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>存活率</button>
+                                        {/* 手機優化：設定 min-width 允許水平滑動 */}
+                                        <div className="overflow-x-auto custom-scroll bg-white">
+                                            <div className="min-w-[800px]">
+                                                <table className="w-full text-xs md:text-sm text-center table-fixed">
+                                                    <thead className="font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200">
+                                                        <tr>
+                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100">策略</th>
+                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-emerald-700 bg-emerald-50/50">存活率</th>
+                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50">預期生活品質佔比</th>
+                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-amber-700 bg-amber-50/50">提領變異係數(CV)</th>
+                                                            <th className="w-1/5 px-2 py-3 text-slate-600 bg-slate-100/50">生涯總提領均值</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {strategiesDef.map(s => {
+                                                            const stat = simResults?.stats?.[s.id];
+                                                            if (!stat) return null;
+                                                            return (
+                                                                <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
+                                                                    <td className="px-2 py-3 md:py-4 font-bold border-r border-slate-100">
+                                                                        <div className="flex items-center justify-center gap-1.5 truncate" style={{ color: s.color }}>
+                                                                            {s.icon} <span>{s.name.split(' ')[0]}</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-emerald-700 bg-emerald-50/20 border-r border-slate-100">{stat.successRate.toFixed(1)}%</td>
+                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-blue-700 bg-blue-50/20 border-r border-slate-100">{stat.qolRate.toFixed(1)}%</td>
+                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-amber-700 bg-amber-50/20 border-r border-slate-100">{stat.medianCV.toFixed(1)}%</td>
+                                                                    <td className="px-2 py-3 md:py-4 font-mono text-slate-700 bg-slate-50/30">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </div>
-                                        
-                                        {isSimulating ? (
-                                            <div className="h-[300px] sm:h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg">
-                                                <Activity className="animate-pulse text-indigo-400" size={32} />
-                                            </div>
-                                        ) : renderChart()}
                                     </div>
                                 </div>
-                            ) : (
-                                renderAuditTrail()
-                            )}
+                            ) : renderAuditTrail()}
                             
-                            <div className="mt-10 mb-6 text-center">
-                                <a 
-                                    href="https://www.facebook.com/search/top?q=指數三寶飯" 
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1.5 text-[11px] text-slate-300 hover:text-slate-500 transition-colors select-none group"
-                                >
-                                    <span>Designed by</span>
-                                    <span className="font-bold underline decoration-slate-200 underline-offset-2 group-hover:decoration-slate-400">fb/指數三寶飯</span>
-                                    <ExternalLink size={10} className="opacity-60 group-hover:opacity-100" />
+                            <div className="mt-8 mb-6 text-center">
+                                <a href="https://www.facebook.com/search/top?q=指數三寶飯" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[10px] text-slate-300 hover:text-slate-500 transition-colors group">
+                                    <span>Designed by</span><span className="font-bold underline decoration-slate-200 underline-offset-2 group-hover:decoration-slate-400">fb/指數三寶飯</span><ExternalLink size={10} className="opacity-60 group-hover:opacity-100" />
                                 </a>
                             </div>
                         </div>
-                    </div>
-
-                    <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-50">
-                        <button 
-                             onClick={() => {
-                                 const element = document.documentElement;
-                                 if (!document.fullscreenElement) {
-                                     element.requestFullscreen?.() || element.webkitRequestFullscreen?.();
-                                 } else {
-                                     document.exitFullscreen?.() || document.webkitExitFullscreen?.();
-                                 }
-                             }}
-                             className="p-3 bg-white rounded-full shadow-lg border border-slate-200 text-slate-500 hover:text-indigo-600 transition-all hover:scale-110"
-                             title="切換全螢幕"
-                        >
-                            <Maximize2 size={20} />
-                        </button>
                     </div>
                 </div>
             );
