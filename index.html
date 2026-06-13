@@ -1,245 +1,413 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v4.0 - 旗艦版</title>
-    
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>退休動態提領模擬器 v4.0 - 旗艦版</title>
 
-    <script type="importmap">
-    {
-        "imports": {
-            "react": "https://esm.sh/react@18.2.0",
-            "react-dom": "https://esm.sh/react-dom@18.2.0",
-            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-            "recharts": "https://esm.sh/recharts@2.12.0?external=react,react-dom",
-            "lucide-react": "https://esm.sh/lucide-react@0.300.0?external=react"
-        }
-    }
-    </script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <style>
-        body { font-family: "Inter", "Noto Sans TC", sans-serif; background-color: #f8fafc; }
-        input[type="range"] { accent-color: #4f46e5; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
-        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        
-        .sticky-col { position: sticky; left: 0; background-color: #ffffff; z-index: 20; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1); }
-        .sticky-header { position: sticky; top: 0; z-index: 30; }
-    </style>
+<script type="importmap">
+{
+"imports": {
+"react": "https://esm.sh/react@18.2.0",
+"react-dom": "https://esm.sh/react-dom@18.2.0",
+"react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+"recharts": "https://esm.sh/recharts@2.12.0?external=react,react-dom",
+"lucide-react": "https://esm.sh/lucide-react@0.300.0?external=react"
+}
+}
+</script>
+
+<style>
+body { font-family: "Inter", "Noto Sans TC", sans-serif; background-color: #f8fafc; }
+input[type="range"] { accent-color: #4f46e5; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+.custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+.custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+.sticky-col { position: sticky; left: 0; background-color: #ffffff; z-index: 20; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1); }
+.sticky-header { position: sticky; top: 0; z-index: 30; }
+</style>
 </head>
 <body>
-    <div id="root"></div>
+<div id="root"></div>
 
-    <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, memo } from 'react';
-        import { createRoot } from 'react-dom/client';
-        import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, BarChart } from 'recharts';
-        import { Settings, Activity, ShieldCheck, Scale, BookOpen, TrendingUp, RefreshCw, Maximize2, FileSearch, LineChart as ChartIcon, ExternalLink, HelpCircle, PieChart } from 'lucide-react';
+<script type="text/babel" data-type="module">
+import React, { useState, useEffect, memo } from 'react';
+import { createRoot } from 'react-dom/client';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, BarChart } from 'recharts';
+import { Settings, Activity, ShieldCheck, Scale, BookOpen, TrendingUp, RefreshCw, Maximize2, FileSearch, LineChart as ChartIcon, ExternalLink, HelpCircle, PieChart } from 'lucide-react';
 
-        // --- Math & Simulation Engine ---
-        const randn_bm = () => {
-            let u = 0, v = 0;
-            while (u === 0) u = Math.random();
-            while (v === 0) v = Math.random();
-            return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-        };
+// --- Math & Simulation Engine ---
+const randn_bm = () => {
+let u = 0, v = 0;
+while (u === 0) u = Math.random();
+while (v === 0) v = Math.random();
+return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+};
 
-        const strategiesDef = [
-            { 
-                id: 'baseline', name: '傳統 4% 法則', color: '#94a3b8', icon: <BookOpen size={16}/>, 
-                desc: '無論市場漲跌，每年提取首年金額並跟隨通膨調升。生活費最穩，但在大跌時極易耗盡本金。',
-                calcSteps: [
-                    '首年提領 = 初始資產 × 初始提領率',
-                    '次年提領 = 前一年提領額 × (1 + 當年通膨率)',
-                    '無視當下資產餘額，強行提領直至歸零'
-                ]
-            },
-            { 
-                id: 'vanguard', name: 'Vanguard 動態護欄', color: '#0ea5e9', icon: <ShieldCheck size={16}/>, 
-                desc: '提領當下資產的固定比例，但設有變動「天花板」與「地板」，上下限基準為【前一年的實際提領額】。',
-                calcSteps: [
-                    '預期提領 = 當下資產餘額 × 初始提領率',
-                    '設定上限 = 前一年實領金額 × (1 + 上限參數%)',
-                    '設定下限 = 前一年實領金額 × (1 - 下限參數%)',
-                    '最終提領 = 將預期提領限制於【下限, 上限】區間'
-                ]
-            },
-            { 
-                id: 'guyton', name: 'Guyton-Klinger', color: '#f59e0b', icon: <TrendingUp size={16}/>, 
-                desc: '負報酬凍結通膨；提領率飆高時強制限縮生活費(保本)，提領率過低時主動加薪(繁榮)。',
-                calcSteps: [
-                    '若當年市場負報酬，凍結通膨調整(次年提領=去年)',
-                    '當下真實提領率 = 預期提領額 ÷ 當下資產餘額',
-                    '[保本]: 負報酬 且 提領率 > 初始提領率×(1+保本閥值)，提領額削減 X%',
-                    '[繁榮]: 正報酬 且 提領率 < 初始提領率×(1-繁榮閥值)，提領額增加 Y%'
-                ]
-            }
-        ];
+const strategiesDef = [
+{ 
+id: 'baseline', name: '傳統 4% 法則', color: '#94a3b8', icon: <BookOpen size={16}/>, 
+desc: '無論市場漲跌，每年提取首年金額並跟隨通膨調升。生活費最穩，但在大跌時極易耗盡本金。',
+calcSteps: [
+'首年提領 = 初始資產 × 初始提領率',
+'次年提領 = 前一年提領額 × (1 + 當年通膨率)',
+'無視當下資產餘額，強行提領直至歸零'
+]
+},
+{ 
+id: 'vanguard', name: 'Vanguard 動態護欄', color: '#0ea5e9', icon: <ShieldCheck size={16}/>, 
+desc: '提領當下資產的固定比例，但設有變動「天花板」與「地板」，上下限基準為【前一年的實際提領額】。',
+calcSteps: [
+'預期提領 = 當下資產餘額 × 初始提領率',
+'設定上限 = 前一年實領金額 × (1 + 上限參數%)',
+'設定下限 = 前一年實領金額 × (1 - 下限參數%)',
+'最終提領 = 將預期提領限制於【下限, 上限】區間'
+]
+},
+{ 
+id: 'guyton', name: 'Guyton-Klinger', color: '#f59e0b', icon: <TrendingUp size={16}/>, 
+desc: '負報酬凍結通膨；提領率飆高時強制限縮生活費(保本)，提領率過低時主動加薪(繁榮)。',
+calcSteps: [
+'若當年市場負報酬，凍結通膨調整(次年提領=去年)',
+'當下真實提領率 = 預期提領額 ÷ 當下資產餘額',
+'[保本]: 負報酬 且 提領率 > 初始提領率×(1+保本閥值)，提領額削減 X%',
+'[繁榮]: 正報酬 且 提領率 < 初始提領率×(1-繁榮閥值)，提領額增加 Y%'
+]
+}
+];
 
-        // --- 股債配置連動模型 ---
-        const getAssetAllocationParams = (stockRatio) => {
-            const stockReturn = 10.0; const stockVol = 18.0;
-            const bondReturn = 4.0;  const bondVol = 5.0;
-            const correlation = 0.1; 
+// --- 股債配置連動模型 ---
+const getAssetAllocationParams = (stockRatio) => {
+const stockReturn = 10.0; const stockVol = 18.0;
+const bondReturn = 4.0;  const bondVol = 5.0;
+const correlation = 0.1; 
 
-            const wS = stockRatio / 100;
-            const wB = 1 - wS;
+const wS = stockRatio / 100;
+const wB = 1 - wS;
 
-            const expectedReturn = wS * stockReturn + wB * bondReturn;
-            const expectedVol = Math.sqrt(
-                Math.pow(wS * stockVol, 2) + 
-                Math.pow(wB * bondVol, 2) + 
-                2 * wS * wB * stockVol * bondVol * correlation
-            );
+const expectedReturn = wS * stockReturn + wB * bondReturn;
+const expectedVol = Math.sqrt(
+Math.pow(wS * stockVol, 2) + 
+Math.pow(wB * bondVol, 2) + 
+2 * wS * wB * stockVol * bondVol * correlation
+);
 
-            return {
-                r: parseFloat(expectedReturn.toFixed(1)),
-                v: parseFloat(expectedVol.toFixed(1))
-            };
-        };
+return {
+r: parseFloat(expectedReturn.toFixed(1)),
+v: parseFloat(expectedVol.toFixed(1))
+};
+};
 
-        // --- UI Components ---
-        const InputSlider = memo(({ label, value, setter, min, max, step, suffix, info, color = 'indigo' }) => {
-            const [inputValue, setInputValue] = useState(value);
-            useEffect(() => setInputValue(value), [value]);
-            
-            const handleBlur = () => {
-                let num = parseFloat(inputValue);
-                if (isNaN(num)) num = value;
-                if (num < min) num = min;
-                if (num > max) num = max;
-                setter(num);
-                setInputValue(num);
-            };
+// --- UI Components ---
+const InputSlider = memo(({ label, value, setter, min, max, step, suffix, info, color = 'indigo' }) => {
+const [inputValue, setInputValue] = useState(value);
+useEffect(() => setInputValue(value), [value]);
 
-            const bgColors = {
-                indigo: 'bg-slate-50/50 border-slate-200',
-                sky: 'bg-sky-50/30 border-sky-100/50',
-                amber: 'bg-amber-50/30 border-amber-100/50',
-                emerald: 'bg-emerald-50/30 border-emerald-100/50',
-            };
+const handleBlur = () => {
+let num = parseFloat(inputValue);
+if (isNaN(num)) num = value;
+if (num < min) num = min;
+if (num > max) num = max;
+setter(num);
+setInputValue(num);
+};
 
-            return (
-                <div className={`p-3 md:p-3 rounded-lg border ${bgColors[color]} flex flex-col h-full relative group`}>
-                    <div className="flex justify-between items-center gap-1 mb-3">
-                        <label className="text-xs font-bold text-slate-700 flex items-center gap-1 whitespace-nowrap tracking-tight">
-                            {label}
-                            {info && (
-                                <div className="relative flex items-center">
-                                    <HelpCircle size={13} className="text-slate-400 cursor-help" />
-                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal">
-                                        {info}
-                                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
-                                    </div>
-                                </div>
-                            )}
-                        </label>
-                        <div className="flex items-center bg-white rounded border border-slate-300 shadow-sm px-1.5 py-0.5 shrink-0 min-w-0">
-                            <input 
-                                type="number" step={step} value={inputValue} 
-                                onChange={(e) => setInputValue(e.target.value)} 
-                                onBlur={handleBlur}
-                                onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
-                                className="w-10 sm:w-12 text-xs font-mono text-right bg-transparent outline-none p-0 appearance-none font-bold text-slate-700"
-                            />
-                            <span className="text-[10px] text-slate-500 pl-1 shrink-0">{suffix}</span>
-                        </div>
-                    </div>
-                    <div className="mt-auto pt-1">
-                        <input
-                            type="range" min={min} max={max} step={step} value={value}
-                            onChange={(e) => setter(Number(e.target.value))}
-                            className={`w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-${color}-500`}
-                        />
-                    </div>
-                </div>
-            );
-        });
+const bgColors = {
+indigo: 'bg-slate-50/50 border-slate-200',
+sky: 'bg-sky-50/30 border-sky-100/50',
+amber: 'bg-amber-50/30 border-amber-100/50',
+emerald: 'bg-emerald-50/30 border-emerald-100/50',
+};
 
-        const CustomTooltip = ({ active, payload, label }) => {
-            if (active && payload && payload.length) {
-                const filteredPayload = payload.filter(entry => !String(entry.dataKey).includes('_bg_'));
+return (
+<div className={`p-3 md:p-3 rounded-lg border ${bgColors[color]} flex flex-col h-full relative group`}>
+<div className="flex justify-between items-center gap-1 mb-3">
+<label className="text-xs font-bold text-slate-700 flex items-center gap-1 whitespace-nowrap tracking-tight">
+{label}
+{info && (
+<div className="relative flex items-center">
+<HelpCircle size={13} className="text-slate-400 cursor-help" />
+<div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal">
+{info}
+<div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+</div>
+</div>
+)}
+</label>
+<div className="flex items-center bg-white rounded border border-slate-300 shadow-sm px-1.5 py-0.5 shrink-0 min-w-0">
+<input 
+type="number" step={step} value={inputValue} 
+onChange={(e) => setInputValue(e.target.value)} 
+onBlur={handleBlur}
+onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+className="w-10 sm:w-12 text-xs font-mono text-right bg-transparent outline-none p-0 appearance-none font-bold text-slate-700"
+/>
+<span className="text-[10px] text-slate-500 pl-1 shrink-0">{suffix}</span>
+</div>
+</div>
+<div className="mt-auto pt-1">
+<input
+type="range" min={min} max={max} step={step} value={value}
+onChange={(e) => setter(Number(e.target.value))}
+className={`w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-${color}-500`}
+/>
+</div>
+</div>
+);
+});
 
-                return (
-                    <div className="bg-white/95 backdrop-blur p-3 border border-slate-200 shadow-xl rounded-xl text-xs z-50 min-w-[160px]">
-                        <p className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-1">
-                            <span>退休第 {label} 年</span>
-                        </p>
-                        <div className="space-y-2">
-                            {filteredPayload.map((entry, index) => {
-                                let val = entry.value;
-                                if (typeof val !== 'number') return null; 
-                                
-                                const isPercent = entry.name === '市場報酬' || String(entry.dataKey).includes('survival') || String(entry.name).includes('率') || String(entry.name).includes('佔比');
-                                
-                                if (isPercent) val = val.toFixed(1) + '%';
-                                else val = Math.round(val).toLocaleString() + ' 萬';
-                                
-                                return (
-                                    <div key={index} className="flex items-center justify-between gap-4">
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: entry.color || entry.fill }}></span>
-                                            <span className="font-medium text-slate-600 truncate max-w-[80px]">{entry.name}</span>
-                                        </div>
-                                        <span className="font-mono font-bold" style={{ color: entry.color || entry.fill }}>{val}</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                );
-            }
-            return null;
-        };
+const CustomTooltip = ({ active, payload, label }) => {
+if (active && payload && payload.length) {
+const filteredPayload = payload.filter(entry => !String(entry.dataKey).includes('_bg_'));
 
-        const App = () => {
-            const [activeTab, setActiveTab] = useState('monteCarlo'); 
-            const [auditStrategy, setAuditStrategy] = useState('guyton');
-            const [simSeed, setSimSeed] = useState(0); 
-            const [showDefinitions, setShowDefinitions] = useState(false);
-            
-            const [initialCapital, setInitialCapital] = useState(2000); 
-            const [initialWithdrawalRate, setInitialWithdrawalRate] = useState(4.0); 
-            
+return (
+<div className="bg-white/95 backdrop-blur p-3 border border-slate-200 shadow-xl rounded-xl text-xs z-50 min-w-[160px]">
+<p className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-1">
+<span>退休第 {label} 年</span>
+</p>
+<div className="space-y-2">
+{filteredPayload.map((entry, index) => {
+let val = entry.value;
+if (typeof val !== 'number') return null; 
+
+const isPercent = entry.name === '市場報酬' || String(entry.dataKey).includes('survival') || String(entry.name).includes('率') || String(entry.name).includes('佔比');
+
+if (isPercent) val = val.toFixed(1) + '%';
+else val = Math.round(val).toLocaleString() + ' 萬';
+
+return (
+<div key={index} className="flex items-center justify-between gap-4">
+<div className="flex items-center gap-1.5">
+<span className="w-2 h-2 rounded-sm" style={{ backgroundColor: entry.color || entry.fill }}></span>
+<span className="font-medium text-slate-600 truncate max-w-[80px]">{entry.name}</span>
+</div>
+<span className="font-mono font-bold" style={{ color: entry.color || entry.fill }}>{val}</span>
+</div>
+);
+})}
+</div>
+</div>
+);
+}
+return null;
+};
+
+const App = () => {
+const [activeTab, setActiveTab] = useState('monteCarlo'); 
+const [auditStrategy, setAuditStrategy] = useState('guyton');
+const [simSeed, setSimSeed] = useState(0); 
+const [showDefinitions, setShowDefinitions] = useState(false);
+
+const [initialCapital, setInitialCapital] = useState(2000); 
+const [initialWithdrawalRate, setInitialWithdrawalRate] = useState(4.0); 
+
+            const [stockRatio, setStockRatio] = useState(60);
             // 預設為 80% 股債比
             const [stockRatio, setStockRatio] = useState(80);
-            
+
+            const [cagr, setCagr] = useState(7.0); 
+            const [volatility, setVolatility] = useState(11.0); 
             const [cagr, setCagr] = useState(8.8); 
             const [volatility, setVolatility] = useState(14.5); 
-            const [inflation, setInflation] = useState(3.0); 
-            const [years, setYears] = useState(30);
-            const [simCount, setSimCount] = useState(1000);
-            const [sorrTest, setSorrTest] = useState(false);
+const [inflation, setInflation] = useState(3.0); 
+const [years, setYears] = useState(30);
+const [simCount, setSimCount] = useState(1000);
+const [sorrTest, setSorrTest] = useState(false);
 
-            const handleStockRatioChange = (newRatio) => {
-                setStockRatio(newRatio);
-                const params = getAssetAllocationParams(newRatio);
-                setCagr(params.r);
-                setVolatility(params.v);
-            };
+const handleStockRatioChange = (newRatio) => {
+setStockRatio(newRatio);
+const params = getAssetAllocationParams(newRatio);
+setCagr(params.r);
+setVolatility(params.v);
+};
 
-            const [vanCeiling, setVanCeiling] = useState(5.0); 
-            const [vanFloor, setVanFloor] = useState(2.5); 
-            const [gkCapPreserveThresh, setGkCapPreserveThresh] = useState(20); 
-            const [gkCapPreserveCut, setGkCapPreserveCut] = useState(10); 
-            const [gkProsperityThresh, setGkProsperityThresh] = useState(20); 
-            const [gkProsperityHike, setGkProsperityHike] = useState(10); 
+const [vanCeiling, setVanCeiling] = useState(5.0); 
+const [vanFloor, setVanFloor] = useState(2.5); 
+const [gkCapPreserveThresh, setGkCapPreserveThresh] = useState(20); 
+const [gkCapPreserveCut, setGkCapPreserveCut] = useState(10); 
+const [gkProsperityThresh, setGkProsperityThresh] = useState(20); 
+const [gkProsperityHike, setGkProsperityHike] = useState(10); 
 
-            const [viewMode, setViewMode] = useState('netWorth'); 
-            const [auditChartMode, setAuditChartMode] = useState('netWorth'); 
-            const [simResults, setSimResults] = useState(null);
-            const [isSimulating, setIsSimulating] = useState(false);
+const [viewMode, setViewMode] = useState('netWorth'); 
+const [auditChartMode, setAuditChartMode] = useState('netWorth'); 
+const [simResults, setSimResults] = useState(null);
+const [isSimulating, setIsSimulating] = useState(false);
 
-            useEffect(() => {
-                setIsSimulating(true);
-                const timer = setTimeout(() => {
+useEffect(() => {
+setIsSimulating(true);
+const timer = setTimeout(() => {
+const runSimulation = () => {
+const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
+
+const pathsNW = { baseline: [], vanguard: [], guyton: [] };
+const pathsW = { baseline: [], vanguard: [], guyton: [] };
+const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
+
+let totals = {
+baseline: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
+vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
+guyton: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] }
+};
+
+const auditData = [];
+const universePerformances = []; 
+
+for (let i = 0; i < simCount; i++) {
+const marketReturns = [];
+const inflFactors = []; 
+let currentInflFactor = 1;
+let pathMarketReturn = 1; 
+
+for (let t = 0; t < years; t++) {
+const Z = randn_bm();
+let r = (cagr / 100) + (volatility / 100) * Z;
+
+if (sorrTest && t < 3) { r = -0.15; }
+
+marketReturns.push(r);
+pathMarketReturn *= (1 + r);
+
+currentInflFactor *= (1 + (inflation / 100));
+inflFactors.push(currentInflFactor);
+
+if (i === 0) {
+auditData.push({
+year: t + 1, marketReturn: r * 100, inflationMult: currentInflFactor,
+baseline: {}, vanguard: {}, guyton: {}
+});
+}
+}
+
+universePerformances.push({ idx: i, totalReturn: pathMarketReturn });
+
+const simulateStrategy = (stratId, logicFn) => {
+let nw = initialCapital;
+let w = 0;
+let dead = false;
+const pathNW = [];
+const pathW = [];
+const pathRealW = [];
+let totW = 0;
+
+for (let t = 0; t < years; t++) {
+let currentNote = '';
+const expectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t-1];
+
+if (!dead) {
+const res = logicFn(t, nw, pathW, marketReturns, inflFactors, expectedRealW);
+w = res.w;
+currentNote = res.note;
+} else {
+w = 0;
+currentNote = '資產耗盡';
+}
+
+if (w < expectedRealW - 0.1) totals[stratId].downgradedYears++;
+
+if (!dead) {
+nw -= w;
+if (nw <= 0) { nw = 0; dead = true; }
+else { nw *= (1 + marketReturns[t]); }
+}
+
+totW += w;
+pathNW.push(nw);
+pathW.push(w);
+pathRealW.push(t === 0 ? w : w / inflFactors[t-1]);
+
+if (!dead) survivals[stratId][t+1]++;
+
+if (i === 0) {
+auditData[t][stratId].nw = nw;
+auditData[t][stratId].w = w;
+auditData[t][stratId].note = currentNote;
+}
+}
+
+if (nw <= 0) totals[stratId].dead++;
+totals[stratId].finalNW.push(nw);
+totals[stratId].totalWithdrawn.push(totW);
+pathsNW[stratId].push(pathNW);
+pathsW[stratId].push(pathW);
+
+const meanW = pathRealW.reduce((a,b)=>a+b,0) / years;
+const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
+const stdW = Math.sqrt(varW);
+totals[stratId].wCVData.push(meanW > 0 ? (stdW / meanW) * 100 : 0);
+};
+
+simulateStrategy('baseline', (t, nw, histW, mr, inf, exp) => {
+if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+return { w: initialWithdrawal * inf[t-1], note: '依通膨調整' };
+});
+
+simulateStrategy('vanguard', (t, nw, histW, mr, inf, exp) => {
+if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+const expectedW = nw * (initialWithdrawalRate / 100); 
+const prevActualW = histW[t-1]; 
+const maxW = prevActualW * (1 + vanCeiling / 100); 
+const minW = prevActualW * (1 - vanFloor / 100);   
+const actualW = Math.min(Math.max(expectedW, minW), maxW);
+
+let note = '比例自然變動';
+if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限 (限縮)';
+else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限 (保護)';
+return { w: actualW, note };
+});
+
+simulateStrategy('guyton', (t, nw, histW, mr, inf, exp) => {
+if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+const prevReturn = mr[t-1];
+let nextW = histW[t-1];
+let note = '';
+
+if (prevReturn >= 0) { nextW *= (1 + inflation / 100); note = '隨通膨增加'; } 
+else { note = '❄️凍結通膨'; } 
+
+const wr = (nextW / nw) * 100;
+if (prevReturn < 0 && wr > initialWithdrawalRate * (1 + gkCapPreserveThresh/100)) {
+nextW *= (1 - gkCapPreserveCut/100); note += ' | 🔴保本刪減';
+} else if (prevReturn > 0 && wr < initialWithdrawalRate * (1 - gkProsperityThresh/100)) {
+nextW *= (1 + gkProsperityHike/100); note = '🟢繁榮加薪';
+}
+return { w: nextW, note };
+});
+}
+
+const chartDataNW = [];
+const chartDataW = [];
+const chartDataSurv = [];
+
+universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
+                        const medianUniverseIdx = universePerformances[Math.floor(simCount / 2)].idx;
+                        const medianUniverse = universePerformances[Math.floor(simCount / 2)];
+                        const medianUniverseIdx = medianUniverse.idx;
+
+                        // 為了畫背景長條圖，重新提取這 1 個特定宇宙每一年的報酬率
+                        // 注意：marketReturns 陣列是 [0 到 years-1]
+                        const pathReturnsForChart = [];
+                        let nwTemp = initialCapital;
+                        let deadTemp = false;
+                        for (let t = 0; t < years; t++) {
+                             // 我們必須用同樣的 random 序列或是我們在上面直接把每次的 returns 存起來
+                             // 為了效能，我們在上面 universePerformances 可以存
+                        }
+                        // 修正：直接從第一個跑回圈的地方，把所有的 marketReturns 存進 auditData[0...years] 時，
+                        // 但那是第 0 個 universe。我們需要 P50 universe 的 marketReturn。
+                        // 我們在上頭跑時，並未保留每個 universe 的逐年報酬率陣列以節省記憶體。
+                        // 退而求其次：為了讓 P50 有背景長條圖，我們可以用淨值反推，或者再跑一次 RNG (固定 seed 不行，因為隨機數不同)。
+                        // 這裡採用一個最準確的解法：直接把 universePerformances 存入 { idx, totalReturn, returns: [] }
+                        
+                    }; // end runSimulation (由於要在原結構加回 returns，我直接在下面這版完整重建)
+                    
+                    // 重建 runSimulation 以完美支援背景圖
                     const runSimulationWithReturns = () => {
                         const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
                         
@@ -247,11 +415,10 @@
                         const pathsW = { baseline: [], vanguard: [], guyton: [] };
                         const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
                         
-                        // 修正重點：新增 survivorWithdrawn 陣列，專門記錄成功存活路徑的總提領額
                         let totals = {
-                            baseline: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] },
-                            vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] },
-                            guyton: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] }
+                            baseline: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
+                            vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
+                            guyton: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] }
                         };
 
                         const auditData = [];
@@ -332,11 +499,8 @@
                                 if (nw <= 0) totals[stratId].dead++;
                                 totals[stratId].finalNW.push(nw);
                                 totals[stratId].totalWithdrawn.push(totW);
-                                
-                                // 修正重點：若資產未耗盡，則將總提領記錄至「倖存者清單」
-                                if (nw > 0) {
-                                    totals[stratId].survivorWithdrawn.push(totW);
-                                }
+                                pathsNW[stratId].push(pathNW);
+                                pathsW[stratId].push(pathW);
 
                                 const meanW = pathRealW.reduce((a,b)=>a+b,0) / years;
                                 const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
@@ -389,97 +553,97 @@
                         universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
                         const medianUniverse = universePerformances[Math.floor(simCount / 2)];
                         const medianUniverseIdx = medianUniverse.idx;
-                        const medianReturns = medianUniverse.returns; 
+                        const medianReturns = medianUniverse.returns; // 取得 P50 宇宙的市場表現
 
-                        for (let t = 0; t <= years; t++) {
-                            survivals.baseline[0] = simCount; survivals.vanguard[0] = simCount; survivals.guyton[0] = simCount;
-                            
-                            chartDataSurv.push({
-                                year: t,
-                                baseline: (survivals.baseline[t] / simCount) * 100,
-                                vanguard: (survivals.vanguard[t] / simCount) * 100,
-                                guyton: (survivals.guyton[t] / simCount) * 100
-                            });
+for (let t = 0; t <= years; t++) {
+survivals.baseline[0] = simCount; survivals.vanguard[0] = simCount; survivals.guyton[0] = simCount;
 
-                            const nwAtT = { year: t };
-                            const wAtT = { year: t };
-                            
+chartDataSurv.push({
+year: t,
+baseline: (survivals.baseline[t] / simCount) * 100,
+vanguard: (survivals.vanguard[t] / simCount) * 100,
+guyton: (survivals.guyton[t] / simCount) * 100
+});
+
+const nwAtT = { year: t };
+const wAtT = { year: t };
+
+                            // 寫入當年的市場報酬 (供背景長條圖使用)
                             const mRet = t > 0 ? medianReturns[t-1] * 100 : null;
                             nwAtT.marketReturn = mRet;
                             if (t < years) wAtT.marketReturn = mRet;
 
-                            ['baseline', 'vanguard', 'guyton'].forEach(strat => {
-                                nwAtT[strat] = pathsNW[strat][medianUniverseIdx][t];
-                                if (t < years) wAtT[strat] = pathsW[strat][medianUniverseIdx][t];
-                            });
-                            
-                            chartDataNW.push(nwAtT);
-                            if (t < years) chartDataW.push(wAtT);
-                        }
+['baseline', 'vanguard', 'guyton'].forEach(strat => {
+nwAtT[strat] = pathsNW[strat][medianUniverseIdx][t];
+if (t < years) wAtT[strat] = pathsW[strat][medianUniverseIdx][t];
+});
 
-                        const stats = {};
-                        ['baseline', 'vanguard', 'guyton'].forEach(strat => {
-                            const finalNWs = totals[strat].finalNW.sort((a,b)=>a-b);
-                            // 修正重點：改為計算 survivorWithdrawn 的平均值
-                            const survivorWs = totals[strat].survivorWithdrawn;
-                            const avgWithdrawn = survivorWs.length > 0 ? (survivorWs.reduce((a,b)=>a+b,0) / survivorWs.length) : 0;
-                            
-                            const cvs = totals[strat].wCVData.sort((a,b)=>a-b);
-                            stats[strat] = {
-                                successRate: ((simCount - totals[strat].dead) / simCount) * 100,
-                                avgWithdrawn: avgWithdrawn,
-                                qolRate: 100 - ((totals[strat].downgradedYears / (simCount * years)) * 100),
-                                medianCV: cvs[Math.floor(simCount / 2)] 
-                            };
-                        });
+chartDataNW.push(nwAtT);
+if (t < years) chartDataW.push(wAtT);
+}
 
-                        return { chartDataNW, chartDataW, chartDataSurv, stats, auditData };
-                    };
+const stats = {};
+['baseline', 'vanguard', 'guyton'].forEach(strat => {
+const totWs = totals[strat].totalWithdrawn.sort((a,b)=>a-b);
+const cvs = totals[strat].wCVData.sort((a,b)=>a-b);
+stats[strat] = {
+successRate: ((simCount - totals[strat].dead) / simCount) * 100,
+avgWithdrawn: totWs.reduce((a,b)=>a+b,0) / simCount,
+qolRate: 100 - ((totals[strat].downgradedYears / (simCount * years)) * 100),
+medianCV: cvs[Math.floor(simCount / 2)] 
+};
+});
 
+return { chartDataNW, chartDataW, chartDataSurv, stats, auditData };
+};
+
+                    const res = runSimulation();
                     const res = runSimulationWithReturns();
-                    setSimResults(res);
-                    setIsSimulating(false);
-                }, 50);
-                return () => clearTimeout(timer);
-            }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, simSeed, sorrTest]);
+setSimResults(res);
+setIsSimulating(false);
+}, 50);
+return () => clearTimeout(timer);
+}, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, simSeed, sorrTest]);
 
-            const renderChart = () => {
-                if (!simResults) return null;
-                
-                let data = [];
-                let yAxisLabel = '';
-                
-                if (viewMode === 'netWorth') { data = simResults.chartDataNW; yAxisLabel = '淨值 (萬)'; }
-                else if (viewMode === 'withdrawal') { data = simResults.chartDataW; yAxisLabel = '每年提領額 (萬)'; }
-                else if (viewMode === 'survival') { data = simResults.chartDataSurv; yAxisLabel = '資金存活機率 (%)'; }
+const renderChart = () => {
+if (!simResults) return null;
 
-                const legendPayload = strategiesDef.map(s => ({
-                    id: s.id, type: 'circle', value: s.name.split(' ')[0], color: s.color
-                }));
+let data = [];
+let yAxisLabel = '';
 
-                return (
-                    <div className="h-[300px] md:h-[400px] w-full mt-2 md:mt-4">
-                        <ResponsiveContainer width="100%" height="100%">
+if (viewMode === 'netWorth') { data = simResults.chartDataNW; yAxisLabel = '淨值 (萬)'; }
+else if (viewMode === 'withdrawal') { data = simResults.chartDataW; yAxisLabel = '每年提領額 (萬)'; }
+else if (viewMode === 'survival') { data = simResults.chartDataSurv; yAxisLabel = '資金存活機率 (%)'; }
+
+const legendPayload = strategiesDef.map(s => ({
+id: s.id, type: 'circle', value: s.name.split(' ')[0], color: s.color
+}));
+
+return (
+<div className="h-[300px] md:h-[400px] w-full mt-2 md:mt-4">
+<ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
                             <ComposedChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis 
-                                    dataKey="year" 
-                                    type="number"
-                                    domain={[0, 'dataMax']}
-                                    tickCount={Math.floor(years / 5) + 1}
-                                    label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -15, fontSize: 10, fill: '#94a3b8' }} 
-                                    stroke="#cbd5e1" 
-                                    tick={{fontSize: 10, fill: '#94a3b8'}} 
-                                    tickMargin={8} 
-                                />
-                                <YAxis 
+<CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+<XAxis 
+dataKey="year" 
+type="number"
+domain={[0, 'dataMax']}
+tickCount={Math.floor(years / 5) + 1}
+label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -15, fontSize: 10, fill: '#94a3b8' }} 
+stroke="#cbd5e1" 
+tick={{fontSize: 10, fill: '#94a3b8'}} 
+tickMargin={8} 
+/>
+<YAxis 
                                     yAxisId="left"
-                                    stroke="#cbd5e1" 
-                                    tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} 
-                                    width={45}
-                                    domain={viewMode === 'survival' ? [0, 100] : ['auto', 'auto']}
-                                    tick={{fontSize: 10, fill: '#94a3b8'}}
-                                />
+stroke="#cbd5e1" 
+tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} 
+width={45}
+domain={viewMode === 'survival' ? [0, 100] : ['auto', 'auto']}
+tick={{fontSize: 10, fill: '#94a3b8'}}
+/>
+                                {/* 雙軸與長條圖背景 (僅在非存活率檢視時顯示) */}
                                 {viewMode !== 'survival' && (
                                     <YAxis 
                                         yAxisId="right" 
@@ -491,433 +655,431 @@
                                         width={35} 
                                     />
                                 )}
-                                <RechartsTooltip content={<CustomTooltip />} />
-                                <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}/>
-                                
+<RechartsTooltip content={<CustomTooltip />} />
+<Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}/>
+
                                 {viewMode !== 'survival' && (
                                     <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
                                 )}
 
-                                {strategiesDef.map(s => (
+{strategiesDef.map(s => (
+                                    <Line key={`main_${s.id}`} type="monotone" dataKey={s.id} name={s.name.split(' ')[0]} stroke={s.color} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} legendType="none" />
                                     <Line yAxisId="left" key={`main_${s.id}`} type="monotone" dataKey={s.id} name={s.name.split(' ')[0]} stroke={s.color} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} legendType="none" />
-                                ))}
-                                
+))}
+
+                                {viewMode === 'survival' && <ReferenceLine y={100} stroke="#e2e8f0" strokeDasharray="3 3" />}
+                                {viewMode !== 'survival' && <ReferenceLine y={0} stroke="#ef4444" strokeWidth={1} strokeDasharray="5 5" />}
+                            </LineChart>
                                 {viewMode === 'survival' && <ReferenceLine yAxisId="left" y={100} stroke="#e2e8f0" strokeDasharray="3 3" />}
                                 {viewMode !== 'survival' && <ReferenceLine yAxisId="left" y={0} stroke="#ef4444" strokeWidth={1} strokeDasharray="5 5" />}
                             </ComposedChart>
-                        </ResponsiveContainer>
-                    </div>
-                );
-            };
+</ResponsiveContainer>
+</div>
+);
+};
 
-            const renderAuditTrail = () => {
-                if (!simResults || !simResults.auditData) return null;
-                const stratInfo = strategiesDef.find(s => s.id === auditStrategy);
+const renderAuditTrail = () => {
+if (!simResults || !simResults.auditData) return null;
+const stratInfo = strategiesDef.find(s => s.id === auditStrategy);
 
-                const auditChartData = simResults.auditData.map(d => ({
-                    year: d.year,
-                    marketReturn: d.marketReturn,
-                    baseline: auditChartMode === 'netWorth' ? d.baseline.nw : d.baseline.w,
-                    vanguard: auditChartMode === 'netWorth' ? d.vanguard.nw : d.vanguard.w,
-                    guyton: auditChartMode === 'netWorth' ? d.guyton.nw : d.guyton.w
-                }));
+const auditChartData = simResults.auditData.map(d => ({
+year: d.year,
+marketReturn: d.marketReturn,
+baseline: auditChartMode === 'netWorth' ? d.baseline.nw : d.baseline.w,
+vanguard: auditChartMode === 'netWorth' ? d.vanguard.nw : d.vanguard.w,
+guyton: auditChartMode === 'netWorth' ? d.guyton.nw : d.guyton.w
+}));
 
-                const legendPayload = strategiesDef.map(s => ({
-                    id: s.id, type: 'circle', value: s.name.split(' ')[0], color: s.color
-                }));
+const legendPayload = strategiesDef.map(s => ({
+id: s.id, type: 'circle', value: s.name.split(' ')[0], color: s.color
+}));
 
-                return (
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col animate-in fade-in h-auto md:h-[800px]">
-                        <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0 rounded-t-2xl">
-                            <div>
-                                <h3 className="font-extrabold text-slate-800 flex items-center gap-1.5 text-sm md:text-base">
-                                    <FileSearch size={16} className="text-indigo-600"/> 深度稽核
-                                </h3>
-                                <p className="text-[10px] md:text-xs text-slate-500 mt-1">抽出單一平行宇宙，觀察在同樣市場漲跌下的策略反應。</p>
-                            </div>
-                            <button onClick={() => setSimSeed(s => s + 1)} className="w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs md:text-sm font-bold transition-colors whitespace-nowrap shadow-sm">
-                                <RefreshCw size={14} className={isSimulating ? "animate-spin" : ""} /> 重抽宇宙
-                            </button>
-                        </div>
+return (
+<div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col animate-in fade-in h-auto md:h-[800px]">
+<div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0 rounded-t-2xl">
+<div>
+<h3 className="font-extrabold text-slate-800 flex items-center gap-1.5 text-sm md:text-base">
+<FileSearch size={16} className="text-indigo-600"/> 深度稽核
+</h3>
+<p className="text-[10px] md:text-xs text-slate-500 mt-1">抽出單一平行宇宙，觀察在同樣市場漲跌下的策略反應。</p>
+</div>
+<button onClick={() => setSimSeed(s => s + 1)} className="w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs md:text-sm font-bold transition-colors whitespace-nowrap shadow-sm">
+<RefreshCw size={14} className={isSimulating ? "animate-spin" : ""} /> 重抽宇宙
+</button>
+</div>
 
-                        <div className="p-3 md:p-4 border-b border-slate-100 shrink-0">
-                            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-2 px-1">
-                                <div className="text-xs md:text-sm font-bold text-slate-700">軌跡視覺化</div>
-                                <div className="bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner w-full md:w-auto self-start">
-                                    <button onClick={() => setAuditChartMode('netWorth')} className={`flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>比較淨值</button>
-                                    <button onClick={() => setAuditChartMode('withdrawal')} className={`flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>比較提領</button>
-                                </div>
-                            </div>
-                            <div className="h-[200px] md:h-[250px] w-full relative mt-4">
-                                {isSimulating && <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-20 flex items-center justify-center"><Activity className="animate-pulse text-indigo-400" size={24} /></div>}
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={auditChartData} margin={{ top: 5, right: -15, left: -25, bottom: 0 }}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                        <XAxis 
-                                            dataKey="year" 
-                                            type="number"
-                                            domain={[0, 'dataMax']}
-                                            tickCount={Math.floor(years / 5) + 1}
-                                            tick={{fontSize: 9, fill: '#94a3b8'}} 
-                                            tickMargin={5} 
-                                        />
-                                        <YAxis yAxisId="left" type="number" tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} tick={{fontSize: 9, fill: '#64748b', fontWeight: 'bold'}} width={40} />
-                                        <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 9, fill: '#cbd5e1'}} domain={['auto', 'auto']} width={35} />
-                                        <RechartsTooltip content={<CustomTooltip />} />
-                                        <Legend payload={legendPayload} verticalAlign="top" height={24} wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}/>
-                                        
-                                        <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
-                                        <Line yAxisId="left" type="monotone" dataKey="baseline" name="傳統" stroke="#94a3b8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
-                                        <Line yAxisId="left" type="monotone" dataKey="vanguard" name="Vanguard" stroke="#0ea5e9" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
-                                        <Line yAxisId="left" type="monotone" dataKey="guyton" name="Guyton" stroke="#f59e0b" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
-                                    </ComposedChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-                        
-                        <div className="bg-slate-50/50 flex flex-col shrink-0 border-b border-slate-200">
-                            <div className="flex overflow-x-auto no-scrollbar px-3 py-2 gap-2 border-b border-slate-100">
-                                {strategiesDef.map(s => (
-                                    <button 
-                                        key={s.id}
-                                        onClick={() => setAuditStrategy(s.id)}
-                                        className={`shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all border ${auditStrategy === s.id ? 'bg-white border-slate-300 shadow-sm' : 'border-transparent text-slate-500'}`}
-                                        style={{ color: auditStrategy === s.id ? s.color : undefined }}
-                                    >
-                                        {s.name}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="p-3 text-xs text-slate-600 bg-white m-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3">
-                                <div className="p-1.5 rounded-md shrink-0 bg-slate-50" style={{ color: stratInfo.color }}>{stratInfo.icon}</div>
-                                <span className="leading-relaxed">{stratInfo.desc}</span>
-                            </div>
-                        </div>
+<div className="p-3 md:p-4 border-b border-slate-100 shrink-0">
+<div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-2 px-1">
+<div className="text-xs md:text-sm font-bold text-slate-700">軌跡視覺化</div>
+<div className="bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner w-full md:w-auto self-start">
+<button onClick={() => setAuditChartMode('netWorth')} className={`flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>比較淨值</button>
+<button onClick={() => setAuditChartMode('withdrawal')} className={`flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>比較提領</button>
+</div>
+</div>
+<div className="h-[200px] md:h-[250px] w-full relative mt-4">
+{isSimulating && <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-20 flex items-center justify-center"><Activity className="animate-pulse text-indigo-400" size={24} /></div>}
+<ResponsiveContainer width="100%" height="100%">
+<ComposedChart data={auditChartData} margin={{ top: 5, right: -15, left: -25, bottom: 0 }}>
+<CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+<XAxis 
+dataKey="year" 
+type="number"
+domain={[0, 'dataMax']}
+tickCount={Math.floor(years / 5) + 1}
+tick={{fontSize: 9, fill: '#94a3b8'}} 
+tickMargin={5} 
+/>
+<YAxis yAxisId="left" type="number" tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} tick={{fontSize: 9, fill: '#64748b', fontWeight: 'bold'}} width={40} />
+<YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 9, fill: '#cbd5e1'}} domain={['auto', 'auto']} width={35} />
+<RechartsTooltip content={<CustomTooltip />} />
+<Legend payload={legendPayload} verticalAlign="top" height={24} wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}/>
 
-                        <div className="flex-1 overflow-auto custom-scroll relative bg-white">
-                            <div className="min-w-[600px]">
-                                <table className="w-full text-xs md:text-sm text-left whitespace-nowrap">
-                                    <thead className="font-extrabold text-slate-500 sticky-header bg-slate-50 shadow-sm border-b border-slate-200">
-                                        <tr>
-                                            <th className="px-3 md:px-4 py-2.5 sticky-col text-center w-12 md:w-16">年次</th>
-                                            <th className="px-3 md:px-4 py-2.5 text-right">市場報酬</th>
-                                            <th className="px-3 md:px-4 py-2.5 text-right">累積通膨</th>
-                                            <th className="px-3 md:px-4 py-2.5 text-right border-l border-slate-200 bg-white">實領生活費</th>
-                                            <th className="px-3 md:px-4 py-2.5 text-right bg-white">期末淨值</th>
-                                            <th className="px-3 md:px-4 py-2.5 text-left w-1/3 bg-white">狀態備註</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {simResults.auditData.map((row, idx) => {
-                                            const sData = row[auditStrategy];
-                                            const isNegativeMarket = row.marketReturn < 0;
-                                            const isDead = sData.nw <= 0;
-                                            return (
-                                                <tr key={idx} className={`hover:bg-slate-50/80 ${isDead ? 'opacity-50 bg-rose-50/20' : ''}`}>
-                                                    <td className="px-3 md:px-4 py-2 sticky-col text-center font-bold text-slate-600 border-r border-slate-100">第 {row.year} 年</td>
-                                                    <td className={`px-3 md:px-4 py-2 text-right font-mono font-bold ${isNegativeMarket ? 'text-rose-500' : 'text-emerald-600'}`}>{row.marketReturn > 0 ? '+' : ''}{row.marketReturn.toFixed(1)}%</td>
-                                                    <td className="px-3 md:px-4 py-2 text-right font-mono text-slate-500">{row.inflationMult.toFixed(2)}x</td>
+<Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
+<Line yAxisId="left" type="monotone" dataKey="baseline" name="傳統" stroke="#94a3b8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
+<Line yAxisId="left" type="monotone" dataKey="vanguard" name="Vanguard" stroke="#0ea5e9" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
+<Line yAxisId="left" type="monotone" dataKey="guyton" name="Guyton" stroke="#f59e0b" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
+</ComposedChart>
+</ResponsiveContainer>
+</div>
+</div>
+
+<div className="bg-slate-50/50 flex flex-col shrink-0 border-b border-slate-200">
+<div className="flex overflow-x-auto no-scrollbar px-3 py-2 gap-2 border-b border-slate-100">
+{strategiesDef.map(s => (
+<button 
+key={s.id}
+onClick={() => setAuditStrategy(s.id)}
+className={`shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all border ${auditStrategy === s.id ? 'bg-white border-slate-300 shadow-sm' : 'border-transparent text-slate-500'}`}
+style={{ color: auditStrategy === s.id ? s.color : undefined }}
+>
+{s.name}
+</button>
+))}
+</div>
+<div className="p-3 text-xs text-slate-600 bg-white m-3 rounded-lg border border-slate-200 shadow-sm flex items-center gap-3">
+<div className="p-1.5 rounded-md shrink-0 bg-slate-50" style={{ color: stratInfo.color }}>{stratInfo.icon}</div>
+<span className="leading-relaxed">{stratInfo.desc}</span>
+</div>
+</div>
+
+<div className="flex-1 overflow-auto custom-scroll relative bg-white">
+<div className="min-w-[600px]">
+<table className="w-full text-xs md:text-sm text-left whitespace-nowrap">
+<thead className="font-extrabold text-slate-500 sticky-header bg-slate-50 shadow-sm border-b border-slate-200">
+<tr>
+<th className="px-3 md:px-4 py-2.5 sticky-col text-center w-12 md:w-16">年次</th>
+<th className="px-3 md:px-4 py-2.5 text-right">市場報酬</th>
+<th className="px-3 md:px-4 py-2.5 text-right">累積通膨</th>
+<th className="px-3 md:px-4 py-2.5 text-right border-l border-slate-200 bg-white">實領生活費</th>
+<th className="px-3 md:px-4 py-2.5 text-right bg-white">期末淨值</th>
+<th className="px-3 md:px-4 py-2.5 text-left w-1/3 bg-white">狀態備註</th>
+</tr>
+</thead>
+<tbody className="divide-y divide-slate-100">
+{simResults.auditData.map((row, idx) => {
+const sData = row[auditStrategy];
+const isNegativeMarket = row.marketReturn < 0;
+const isDead = sData.nw <= 0;
+return (
+<tr key={idx} className={`hover:bg-slate-50/80 ${isDead ? 'opacity-50 bg-rose-50/20' : ''}`}>
+<td className="px-3 md:px-4 py-2 sticky-col text-center font-bold text-slate-600 border-r border-slate-100">第 {row.year} 年</td>
+<td className={`px-3 md:px-4 py-2 text-right font-mono font-bold ${isNegativeMarket ? 'text-rose-500' : 'text-emerald-600'}`}>{row.marketReturn > 0 ? '+' : ''}{row.marketReturn.toFixed(1)}%</td>
+<td className="px-3 md:px-4 py-2 text-right font-mono text-slate-500">{row.inflationMult.toFixed(2)}x</td>
+                                                    <td className="px-3 md:px-4 py-2 text-right font-mono font-bold border-l border-slate-100 bg-slate-50/30" style={{ color: isDead ? '#94a3b8' : stratInfo.color }}>{Math.round(sData.w).toLocaleString()}</td>
+                                                    <td className="px-3 md:px-4 py-2 text-right font-mono font-bold text-slate-700">{Math.round(sData.nw).toLocaleString()}</td>
                                                     <td className="px-3 md:px-4 py-2 text-right font-mono font-bold border-l border-slate-100 bg-slate-50/30" style={{ color: isDead ? '#94a3b8' : stratInfo.color }}>{Math.round(sData.w).toLocaleString()} 萬</td>
                                                     <td className="px-3 md:px-4 py-2 text-right font-mono font-bold text-slate-700">{Math.round(sData.nw).toLocaleString()} 萬</td>
-                                                    <td className="px-3 md:px-4 py-2 text-left">
-                                                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] md:text-[11px] font-bold ${sData.note.includes('🔴') || sData.note.includes('耗盡') ? 'bg-rose-100 text-rose-700' : sData.note.includes('🟢') ? 'bg-emerald-100 text-emerald-700' : sData.note.includes('❄️') ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>
-                                                            {sData.note}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                );
-            };
+<td className="px-3 md:px-4 py-2 text-left">
+<span className={`inline-block px-1.5 py-0.5 rounded text-[10px] md:text-[11px] font-bold ${sData.note.includes('🔴') || sData.note.includes('耗盡') ? 'bg-rose-100 text-rose-700' : sData.note.includes('🟢') ? 'bg-emerald-100 text-emerald-700' : sData.note.includes('❄️') ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>
+{sData.note}
+</span>
+</td>
+</tr>
+);
+})}
+</tbody>
+</table>
+</div>
+</div>
+</div>
+);
+};
 
-            const barChartData = [
-                {
-                    name: '資金存活率',
-                    baseline: simResults?.stats?.baseline?.successRate || 0,
-                    vanguard: simResults?.stats?.vanguard?.successRate || 0,
-                    guyton: simResults?.stats?.guyton?.successRate || 0,
-                },
-                {
+const barChartData = [
+{
+name: '資金存活率',
+baseline: simResults?.stats?.baseline?.successRate || 0,
+vanguard: simResults?.stats?.vanguard?.successRate || 0,
+guyton: simResults?.stats?.guyton?.successRate || 0,
+},
+{
+                    name: '生活品質佔比',
                     name: '預期生活品質佔比',
-                    baseline: simResults?.stats?.baseline?.qolRate || 0,
-                    vanguard: simResults?.stats?.vanguard?.qolRate || 0,
-                    guyton: simResults?.stats?.guyton?.qolRate || 0,
-                },
-                {
+baseline: simResults?.stats?.baseline?.qolRate || 0,
+vanguard: simResults?.stats?.vanguard?.qolRate || 0,
+guyton: simResults?.stats?.guyton?.qolRate || 0,
+},
+{
+                    name: '提領波動度',
                     name: '提領變異係數(CV)',
-                    baseline: simResults?.stats?.baseline?.medianCV || 0,
-                    vanguard: simResults?.stats?.vanguard?.medianCV || 0,
-                    guyton: simResults?.stats?.guyton?.medianCV || 0,
-                }
-            ];
+baseline: simResults?.stats?.baseline?.medianCV || 0,
+vanguard: simResults?.stats?.vanguard?.medianCV || 0,
+guyton: simResults?.stats?.guyton?.medianCV || 0,
+}
+];
 
-            return (
-                <div className="max-w-[1400px] mx-auto p-2 md:p-5 lg:p-6 pb-20">
-                    <header className="mb-4 md:mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 px-2 md:px-0">
-                        <div>
-                            <h1 className="text-xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2 md:gap-3">
-                                <Activity className="w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0" />
-                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v4.0 旗艦版</span></span>
-                            </h1>
-                            <p className="text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep">
-                                結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。<span className="md:hidden text-indigo-400">(建議橫向瀏覽)</span>
-                            </p>
-                        </div>
-                        <button 
-                            onClick={() => setShowDefinitions(!showDefinitions)}
-                            className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm shrink-0"
-                        >
-                            <BookOpen size={16} /> 
-                            {showDefinitions ? '隱藏計算原理' : '展開策略計算原理'}
-                        </button>
-                    </header>
+return (
+<div className="max-w-[1400px] mx-auto p-2 md:p-5 lg:p-6 pb-20">
+<header className="mb-4 md:mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 px-2 md:px-0">
+<div>
+<h1 className="text-xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2 md:gap-3">
+<Activity className="w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0" />
+<span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v4.0 旗艦版</span></span>
+</h1>
+<p className="text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep">
+結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。<span className="md:hidden text-indigo-400">(建議橫向瀏覽)</span>
+</p>
+</div>
+<button 
+onClick={() => setShowDefinitions(!showDefinitions)}
+className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm shrink-0"
+>
+<BookOpen size={16} /> 
+{showDefinitions ? '隱藏計算原理' : '展開策略計算原理'}
+</button>
+</header>
 
-                    {showDefinitions && (
-                        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0">
-                            {strategiesDef.map(s => (
-                                <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-3">
-                                    <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
-                                        <div className="p-1.5 rounded-lg" style={{ backgroundColor: `${s.color}15`, color: s.color }}>{s.icon}</div>
-                                        <h3 className="font-bold text-slate-800 text-sm">{s.name}</h3>
-                                    </div>
-                                    <p className="text-[11px] text-slate-600 leading-relaxed">{s.desc}</p>
-                                    <div className="bg-slate-50 rounded-lg p-3 mt-auto border border-slate-100">
-                                        <div className="text-[10px] font-extrabold text-slate-500 mb-2 flex items-center gap-1.5"><Settings size={12}/> 演算法運算邏輯：</div>
-                                        <ol className="text-[10px] text-slate-700 list-decimal pl-4 space-y-1.5 font-mono leading-tight">
-                                            {s.calcSteps.map((step, i) => <li key={i} className="pl-1">{step}</li>)}
-                                        </ol>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+{showDefinitions && (
+<div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0">
+{strategiesDef.map(s => (
+<div key={s.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-3">
+<div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+<div className="p-1.5 rounded-lg" style={{ backgroundColor: `${s.color}15`, color: s.color }}>{s.icon}</div>
+<h3 className="font-bold text-slate-800 text-sm">{s.name}</h3>
+</div>
+<p className="text-[11px] text-slate-600 leading-relaxed">{s.desc}</p>
+<div className="bg-slate-50 rounded-lg p-3 mt-auto border border-slate-100">
+<div className="text-[10px] font-extrabold text-slate-500 mb-2 flex items-center gap-1.5"><Settings size={12}/> 演算法運算邏輯：</div>
+<ol className="text-[10px] text-slate-700 list-decimal pl-4 space-y-1.5 font-mono leading-tight">
+{s.calcSteps.map((step, i) => <li key={i} className="pl-1">{step}</li>)}
+</ol>
+</div>
+</div>
+))}
+</div>
+)}
 
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 relative">
-                        {/* 左側參數面板 */}
-                        <div className="lg:col-span-4 flex flex-col gap-4 md:gap-5 lg:sticky lg:top-4 lg:h-[calc(100vh-40px)] lg:overflow-y-auto custom-scroll pr-1 px-2 md:px-0">
-                            
-                            <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
-                                <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
-                                    <PieChart className="w-4 h-4 text-indigo-500"/> 資產配置與市場環境
-                                </h3>
-                                
-                                <div className="mb-4">
-                                    <InputSlider 
-                                        label="股票配置比例" value={stockRatio} setter={handleStockRatioChange} 
-                                        min={0} max={100} step={10} suffix="%" color="emerald"
-                                        info="自動連動歷史平均預期報酬與波動率（基於全球股/美債長期模型）" 
-                                    />
-                                    <div className="flex justify-between px-2 mt-1 text-[10px] text-slate-400 font-medium">
-                                        <span>保守 (多債)</span><span>積極 (多股)</span>
-                                    </div>
-                                </div>
+<div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 relative">
+{/* 左側參數面板 */}
+<div className="lg:col-span-4 flex flex-col gap-4 md:gap-5 lg:sticky lg:top-4 lg:h-[calc(100vh-40px)] lg:overflow-y-auto custom-scroll pr-1 px-2 md:px-0">
 
-                                <div className="grid grid-cols-2 gap-2 md:gap-3 mb-4">
-                                    <InputSlider label="預期年化報酬" value={cagr} setter={setCagr} min={0} max={15} step={0.1} suffix="%" />
-                                    <InputSlider label="投資組合波動" value={volatility} setter={setVolatility} min={0} max={30} step={0.1} suffix="%" />
-                                </div>
-                                <div className="grid grid-cols-2 gap-2 md:gap-3 mb-4">
-                                    <InputSlider label="平均通膨率" value={inflation} setter={setInflation} min={0} max={10} step={0.5} suffix="%" />
-                                    <InputSlider label="模擬年限" value={years} setter={setYears} min={10} max={50} step={5} suffix="年" />
-                                </div>
+<div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
+<h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
+<PieChart className="w-4 h-4 text-indigo-500"/> 資產配置與市場環境
+</h3>
 
-                                <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                                    <div className="flex flex-col">
-                                        <span className="text-[11px] md:text-sm font-bold text-rose-600 flex items-center gap-1"><TrendingUp size={14} className="rotate-180"/> 壓力測試：報酬順序風險</span>
-                                        <span className="text-[9px] md:text-[10px] text-slate-500 mt-0.5">強制前三年大跌 (-15%)，測試防禦力</span>
-                                    </div>
-                                    <button onClick={() => setSorrTest(!sorrTest)} className={`relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${sorrTest ? 'bg-rose-500' : 'bg-slate-300'}`}>
-                                        <span className={`pointer-events-none inline-block h-4 md:h-5 w-4 md:w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${sorrTest ? 'translate-x-4 md:translate-x-5' : 'translate-x-0'}`} />
-                                    </button>
-                                </div>
-                            </div>
+<div className="mb-4">
+<InputSlider 
+label="股票配置比例" value={stockRatio} setter={handleStockRatioChange} 
+min={0} max={100} step={10} suffix="%" color="emerald"
+info="自動連動歷史平均預期報酬與波動率（基於全球股/美債長期模型）" 
+/>
+<div className="flex justify-between px-2 mt-1 text-[10px] text-slate-400 font-medium">
+<span>保守 (多債)</span><span>積極 (多股)</span>
+</div>
+</div>
 
-                            <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
-                                <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
-                                    <Settings className="w-4 h-4 text-slate-500"/> 個人退休計畫
-                                </h3>
-                                <div className="grid grid-cols-1 gap-3">
-                                    <InputSlider label="退休初始資產" value={initialCapital} setter={setInitialCapital} min={1000} max={20000} step={500} suffix="萬" color="indigo" />
-                                    <InputSlider label="初始提領率 (首年)" value={initialWithdrawalRate} setter={setInitialWithdrawalRate} min={2.0} max={8.0} step={0.1} suffix="%" color="indigo" />
-                                </div>
-                            </div>
+<div className="grid grid-cols-2 gap-2 md:gap-3 mb-4">
+<InputSlider label="預期年化報酬" value={cagr} setter={setCagr} min={0} max={15} step={0.1} suffix="%" />
+<InputSlider label="投資組合波動" value={volatility} setter={setVolatility} min={0} max={30} step={0.1} suffix="%" />
+</div>
+<div className="grid grid-cols-2 gap-2 md:gap-3 mb-4">
+<InputSlider label="平均通膨率" value={inflation} setter={setInflation} min={0} max={10} step={0.5} suffix="%" />
+<InputSlider label="模擬年限" value={years} setter={setYears} min={10} max={50} step={5} suffix="年" />
+</div>
 
-                            <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
-                                <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
-                                    <Scale className="w-4 h-4 text-slate-500"/> 動態護欄閥值微調
-                                </h3>
-                                <div className="mb-5">
-                                    <h4 className="text-[11px] md:text-xs font-bold text-sky-700 mb-2 flex items-center gap-1"><ShieldCheck size={14}/> Vanguard 變動護欄</h4>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <InputSlider label="提領增加上限" value={vanCeiling} setter={setVanCeiling} min={0} max={15} step={0.5} suffix="%" color="sky" />
-                                        <InputSlider label="提領減少下限" value={vanFloor} setter={setVanFloor} min={0} max={15} step={0.5} suffix="%" color="sky" />
-                                    </div>
-                                </div>
+<div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+<div className="flex flex-col">
+<span className="text-[11px] md:text-sm font-bold text-rose-600 flex items-center gap-1"><TrendingUp size={14} className="rotate-180"/> 壓力測試：報酬順序風險</span>
+<span className="text-[9px] md:text-[10px] text-slate-500 mt-0.5">強制前三年大跌 (-15%)，測試防禦力</span>
+</div>
+<button onClick={() => setSorrTest(!sorrTest)} className={`relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${sorrTest ? 'bg-rose-500' : 'bg-slate-300'}`}>
+<span className={`pointer-events-none inline-block h-4 md:h-5 w-4 md:w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${sorrTest ? 'translate-x-4 md:translate-x-5' : 'translate-x-0'}`} />
+</button>
+</div>
+</div>
 
-                                <div className="pt-4 border-t border-slate-100">
-                                    <h4 className="text-[11px] md:text-xs font-bold text-amber-700 mb-2 flex items-center gap-1"><TrendingUp size={14}/> Guyton-Klinger 決策閥值</h4>
-                                    <div className="grid grid-cols-2 gap-2 mb-2">
-                                        <InputSlider label="保本:觸發閥值" value={gkCapPreserveThresh} setter={setGkCapPreserveThresh} min={0} max={50} step={5} suffix="%" color="amber" info="提領率相對初始攀升X%時觸發" />
-                                        <InputSlider label="保本:削減提領" value={gkCapPreserveCut} setter={setGkCapPreserveCut} min={0} max={30} step={5} suffix="%" color="amber" />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <InputSlider label="繁榮:觸發閥值" value={gkProsperityThresh} setter={setGkProsperityThresh} min={0} max={50} step={5} suffix="%" color="amber" info="提領率相對初始下降X%時觸發" />
-                                        <InputSlider label="繁榮:增加提領" value={gkProsperityHike} setter={setGkProsperityHike} min={0} max={30} step={5} suffix="%" color="amber" />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+<div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
+<h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
+<Settings className="w-4 h-4 text-slate-500"/> 個人退休計畫
+</h3>
+<div className="grid grid-cols-1 gap-3">
+<InputSlider label="退休初始資產" value={initialCapital} setter={setInitialCapital} min={1000} max={20000} step={500} suffix="萬" color="indigo" />
+<InputSlider label="初始提領率 (首年)" value={initialWithdrawalRate} setter={setInitialWithdrawalRate} min={2.0} max={8.0} step={0.1} suffix="%" color="indigo" />
+</div>
+</div>
 
-                        {/* 右側圖表區 */}
-                        <div className="lg:col-span-8 flex flex-col gap-4 md:gap-5 px-2 md:px-0">
-                            <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1.5 gap-1 font-bold text-xs md:text-sm">
-                                <button onClick={() => setActiveTab('monteCarlo')} className={`flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'monteCarlo' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                    <ChartIcon size={16} /> 蒙地卡羅報表
-                                </button>
-                                <button onClick={() => setActiveTab('auditTrail')} className={`flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'auditTrail' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                    <FileSearch size={16} /> 深度稽核
-                                </button>
-                            </div>
+<div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200">
+<h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base">
+<Scale className="w-4 h-4 text-slate-500"/> 動態護欄閥值微調
+</h3>
+<div className="mb-5">
+<h4 className="text-[11px] md:text-xs font-bold text-sky-700 mb-2 flex items-center gap-1"><ShieldCheck size={14}/> Vanguard</h4>
+<div className="grid grid-cols-2 gap-2">
+<InputSlider label="提領增加上限" value={vanCeiling} setter={setVanCeiling} min={0} max={15} step={0.5} suffix="%" color="sky" />
+<InputSlider label="提領減少下限" value={vanFloor} setter={setVanFloor} min={0} max={15} step={0.5} suffix="%" color="sky" />
+</div>
+</div>
+<div className="pt-4 border-t border-slate-100">
+<h4 className="text-[11px] md:text-xs font-bold text-amber-700 mb-2 flex items-center gap-1"><TrendingUp size={14}/> Guyton-Klinger</h4>
+<div className="grid grid-cols-2 gap-2 mb-2">
+<InputSlider label="保本:觸發閥值" value={gkCapPreserveThresh} setter={setGkCapPreserveThresh} min={0} max={50} step={5} suffix="%" color="amber" info="提領率相對初始攀升X%時觸發" />
+<InputSlider label="保本:削減提領" value={gkCapPreserveCut} setter={setGkCapPreserveCut} min={0} max={30} step={5} suffix="%" color="amber" />
+</div>
+<div className="grid grid-cols-2 gap-2">
+<InputSlider label="繁榮:觸發閥值" value={gkProsperityThresh} setter={setGkProsperityThresh} min={0} max={50} step={5} suffix="%" color="amber" info="提領率相對初始下降X%時觸發" />
+<InputSlider label="繁榮:增加提領" value={gkProsperityHike} setter={setGkProsperityHike} min={0} max={30} step={5} suffix="%" color="amber" />
+</div>
+</div>
+</div>
+</div>
 
-                            {activeTab === 'monteCarlo' ? (
-                                <div className="space-y-4 md:space-y-5 animate-in fade-in zoom-in-95 duration-200">
-                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-5">
-                                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-                                            <h2 className="text-sm md:text-lg font-extrabold text-slate-800 flex items-center gap-1.5">
-                                                資產與提領趨勢 
-                                                <span className="text-[10px] md:text-xs font-medium text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded ml-1 group relative cursor-help">
-                                                    典型宇宙 P50
-                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal break-words">
-                                                        將 1000 個宇宙依市場績效排序，挑選出最典型的單一市場宇宙，觀察三種策略在相同漲跌下的表現差異。
-                                                    </div>
-                                                </span>
-                                            </h2>
-                                            <div className="bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner">
-                                                <button onClick={() => setViewMode('netWorth')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>淨值</button>
-                                                <button onClick={() => setViewMode('withdrawal')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>提領</button>
-                                                <button onClick={() => setViewMode('survival')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>存活率</button>
-                                            </div>
-                                        </div>
-                                        {isSimulating ? <div className="h-[300px] md:h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg"><Activity className="animate-pulse text-indigo-400" size={32} /></div> : renderChart()}
-                                    </div>
+{/* 右側圖表區 */}
+<div className="lg:col-span-8 flex flex-col gap-4 md:gap-5 px-2 md:px-0">
+<div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1.5 gap-1 font-bold text-xs md:text-sm">
+<button onClick={() => setActiveTab('monteCarlo')} className={`flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'monteCarlo' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
+<ChartIcon size={16} /> 蒙地卡羅報表
+</button>
+<button onClick={() => setActiveTab('auditTrail')} className={`flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'auditTrail' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
+<FileSearch size={16} /> 深度稽核
+</button>
+</div>
 
-                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                                        <div className="bg-slate-50 px-4 md:px-5 py-3 md:py-4 border-b border-slate-200 flex justify-between items-center">
-                                            <h3 className="font-extrabold text-slate-800 text-sm md:text-base">壓力測試結算報告</h3>
-                                            <span className="text-[10px] md:text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded">第 {years} 年 | 模擬 {simCount} 次</span>
-                                        </div>
-                                        
-                                        <div className="p-4 md:p-5 border-b border-slate-100 bg-white">
+{activeTab === 'monteCarlo' ? (
+<div className="space-y-4 md:space-y-5 animate-in fade-in zoom-in-95 duration-200">
+<div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-5">
+<div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+<h2 className="text-sm md:text-lg font-extrabold text-slate-800 flex items-center gap-1.5">
+資產與提領趨勢 
+<span className="text-[10px] md:text-xs font-medium text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded ml-1 group relative cursor-help">
+典型宇宙 P50
+<div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal break-words">
+將 1000 個宇宙依市場績效排序，挑選出最典型的單一市場宇宙，觀察三種策略在相同漲跌下的表現差異。
+</div>
+</span>
+</h2>
+<div className="bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner">
+<button onClick={() => setViewMode('netWorth')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>淨值</button>
+<button onClick={() => setViewMode('withdrawal')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>提領</button>
+<button onClick={() => setViewMode('survival')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>存活率</button>
+</div>
+</div>
+{isSimulating ? <div className="h-[300px] md:h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg"><Activity className="animate-pulse text-indigo-400" size={32} /></div> : renderChart()}
+</div>
+
+<div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+<div className="bg-slate-50 px-4 md:px-5 py-3 md:py-4 border-b border-slate-200 flex justify-between items-center">
+<h3 className="font-extrabold text-slate-800 text-sm md:text-base">壓力測試結算報告</h3>
+<span className="text-[10px] md:text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded">第 {years} 年 | 模擬 {simCount} 次</span>
+</div>
+
+<div className="p-4 md:p-5 border-b border-slate-100 bg-white">
+                                            <h4 className="text-xs md:text-sm font-bold text-slate-700 mb-1">生存 vs 痛苦指數</h4>
                                             <h4 className="text-sm font-bold text-slate-700 mb-1">生存率 vs 生活品質對比</h4>
                                             <p className="text-[11px] text-slate-500 mb-4">動態提領的本質，就是用「犧牲部分年份的購買力(生活降級)」來換取「極高的資金存活率」的等價交換。</p>
-                                            <div className="h-[200px] md:h-[250px] w-full mt-4">
-                                                <ResponsiveContainer width="100%" height="100%">
-                                                    <BarChart data={barChartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }} barGap={2} barCategoryGap="15%">
-                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                        <XAxis dataKey="name" tick={{fontSize: 10, fill: '#64748b', fontWeight: 'bold'}} axisLine={false} tickLine={false} />
-                                                        <YAxis tickFormatter={(val) => `${val}%`} tick={{fontSize: 9, fill: '#94a3b8'}} axisLine={false} tickLine={false} />
-                                                        <RechartsTooltip cursor={{fill: '#f8fafc'}} content={({active, payload}) => {
-                                                            if (active && payload && payload.length) {
-                                                                return (
-                                                                    <div className="bg-white/95 backdrop-blur p-2.5 border border-slate-200 shadow-xl rounded-xl text-xs z-50">
-                                                                        <p className="font-bold text-slate-700 mb-1.5 border-b border-slate-100 pb-1">{payload[0].payload.name}</p>
-                                                                        <div className="space-y-1.5">
-                                                                            {payload.map((entry, index) => (
-                                                                                <div key={index} className="flex justify-between gap-4 items-center">
-                                                                                    <div className="flex items-center gap-1.5">
-                                                                                        <span className="w-2 h-2 rounded-sm" style={{backgroundColor: entry.color}}></span>
-                                                                                        <span className="font-medium text-slate-600">{strategiesDef.find(s => s.id === entry.dataKey)?.name.split(' ')[0]}</span>
-                                                                                    </div>
-                                                                                    <span className="font-mono font-bold text-slate-700">{entry.value.toFixed(1)}%</span>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    </div>
-                                                                )
-                                                            } return null;
-                                                        }} />
-                                                        <Legend verticalAlign="top" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', paddingBottom: '10px' }} content={() => (
-                                                            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5">
-                                                                {strategiesDef.map(s => (
-                                                                    <div key={s.id} className="flex items-center gap-1">
-                                                                        <span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: s.color}}></span>
-                                                                        <span className="text-[10px] text-slate-600">{s.name.split(' ')[0]}</span>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )} />
-                                                        {strategiesDef.map(s => <Bar key={s.id} dataKey={s.id} fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={800} />)}
-                                                    </BarChart>
-                                                </ResponsiveContainer>
-                                            </div>
-                                        </div>
+<div className="h-[200px] md:h-[250px] w-full mt-4">
+<ResponsiveContainer width="100%" height="100%">
+<BarChart data={barChartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }} barGap={2} barCategoryGap="15%">
+<CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+<XAxis dataKey="name" tick={{fontSize: 10, fill: '#64748b', fontWeight: 'bold'}} axisLine={false} tickLine={false} />
+<YAxis tickFormatter={(val) => `${val}%`} tick={{fontSize: 9, fill: '#94a3b8'}} axisLine={false} tickLine={false} />
+<RechartsTooltip cursor={{fill: '#f8fafc'}} content={({active, payload}) => {
+if (active && payload && payload.length) {
+return (
+<div className="bg-white/95 backdrop-blur p-2.5 border border-slate-200 shadow-xl rounded-xl text-xs z-50">
+<p className="font-bold text-slate-700 mb-1.5 border-b border-slate-100 pb-1">{payload[0].payload.name}</p>
+<div className="space-y-1.5">
+{payload.map((entry, index) => (
+<div key={index} className="flex justify-between gap-4 items-center">
+<div className="flex items-center gap-1.5">
+<span className="w-2 h-2 rounded-sm" style={{backgroundColor: entry.color}}></span>
+<span className="font-medium text-slate-600">{strategiesDef.find(s => s.id === entry.dataKey)?.name.split(' ')[0]}</span>
+</div>
+<span className="font-mono font-bold text-slate-700">{entry.value.toFixed(1)}%</span>
+</div>
+))}
+</div>
+</div>
+)
+} return null;
+}} />
+<Legend verticalAlign="top" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', paddingBottom: '10px' }} content={() => (
+<div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5">
+{strategiesDef.map(s => (
+<div key={s.id} className="flex items-center gap-1">
+<span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: s.color}}></span>
+<span className="text-[10px] text-slate-600">{s.name.split(' ')[0]}</span>
+</div>
+))}
+</div>
+)} />
+{strategiesDef.map(s => <Bar key={s.id} dataKey={s.id} fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={800} />)}
+</BarChart>
+</ResponsiveContainer>
+</div>
+</div>
 
-                                        <div className="overflow-x-auto custom-scroll bg-white">
-                                            <div className="min-w-[800px]">
-                                                <table className="w-full text-xs md:text-sm text-center table-fixed">
-                                                    <thead className="font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200">
-                                                        <tr>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100">策略</th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-emerald-700 bg-emerald-50/50">存活率</th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50">
-                                                                <div>預期生活品質佔比</div>
-                                                                <div className="text-[9px] font-normal text-blue-600/70 mt-0.5 tracking-tighter leading-tight">(維持或超越首年購買力)</div>
-                                                            </th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-amber-700 bg-amber-50/50">
-                                                                <div>提領變異係數(CV)</div>
-                                                                <div className="text-[9px] font-normal text-amber-600/70 mt-0.5 tracking-tighter leading-tight">(越低越穩，生活費不亂跳)</div>
-                                                            </th>
-                                                            <th className="w-1/5 px-2 py-3 text-slate-600 bg-slate-100/50">
-                                                                {/* 修正重點5：加入附註說明，精確解釋平均總提領的計算基準 */}
-                                                                <div>生涯總提領均值</div>
-                                                                <div className="text-[9px] font-normal text-slate-500 mt-0.5 tracking-tighter leading-tight">(排除破產，僅計存活路徑)</div>
-                                                            </th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-100">
-                                                        {strategiesDef.map(s => {
-                                                            const stat = simResults?.stats?.[s.id];
-                                                            if (!stat) return null;
-                                                            return (
-                                                                <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
-                                                                    <td className="px-2 py-3 md:py-4 font-bold border-r border-slate-100">
-                                                                        <div className="flex items-center justify-center gap-1.5 truncate" style={{ color: s.color }}>
-                                                                            {s.icon} <span>{s.name.split(' ')[0]}</span>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-emerald-700 bg-emerald-50/20 border-r border-slate-100">{stat.successRate.toFixed(1)}%</td>
-                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-blue-700 bg-blue-50/20 border-r border-slate-100">{stat.qolRate.toFixed(1)}%</td>
-                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-amber-700 bg-amber-50/20 border-r border-slate-100">{stat.medianCV.toFixed(1)}%</td>
-                                                                    <td className="px-2 py-3 md:py-4 font-mono text-slate-700 bg-slate-50/30">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
-                                                                </tr>
-                                                            );
-                                                        })}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : renderAuditTrail()}
-                            
-                            <div className="mt-8 mb-6 text-center">
-                                <a href="https://www.facebook.com/search/top?q=指數三寶飯" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[10px] text-slate-300 hover:text-slate-500 transition-colors group">
-                                    <span>Designed by</span><span className="font-bold underline decoration-slate-200 underline-offset-2 group-hover:decoration-slate-400">fb/指數三寶飯</span><ExternalLink size={10} className="opacity-60 group-hover:opacity-100" />
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
+<div className="overflow-x-auto custom-scroll bg-white">
+<div className="min-w-[800px]">
+<table className="w-full text-xs md:text-sm text-center table-fixed">
+<thead className="font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200">
+<tr>
+<th className="w-1/5 px-2 py-3 border-r border-slate-100">策略</th>
+<th className="w-1/5 px-2 py-3 border-r border-slate-100 text-emerald-700 bg-emerald-50/50">存活率</th>
+<th className="w-1/5 px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50">預期生活品質佔比</th>
+<th className="w-1/5 px-2 py-3 border-r border-slate-100 text-amber-700 bg-amber-50/50">提領變異係數(CV)</th>
+<th className="w-1/5 px-2 py-3 text-slate-600 bg-slate-100/50">生涯總提領均值</th>
+</tr>
+</thead>
+<tbody className="divide-y divide-slate-100">
+{strategiesDef.map(s => {
+const stat = simResults?.stats?.[s.id];
+if (!stat) return null;
+return (
+<tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
+<td className="px-2 py-3 md:py-4 font-bold border-r border-slate-100">
+<div className="flex items-center justify-center gap-1.5 truncate" style={{ color: s.color }}>
+{s.icon} <span>{s.name.split(' ')[0]}</span>
+</div>
+</td>
+<td className="px-2 py-3 md:py-4 font-mono font-bold text-emerald-700 bg-emerald-50/20 border-r border-slate-100">{stat.successRate.toFixed(1)}%</td>
+<td className="px-2 py-3 md:py-4 font-mono font-bold text-blue-700 bg-blue-50/20 border-r border-slate-100">{stat.qolRate.toFixed(1)}%</td>
+<td className="px-2 py-3 md:py-4 font-mono font-bold text-amber-700 bg-amber-50/20 border-r border-slate-100">{stat.medianCV.toFixed(1)}%</td>
+<td className="px-2 py-3 md:py-4 font-mono text-slate-700 bg-slate-50/30">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
+</tr>
+);
+})}
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+) : renderAuditTrail()}
 
-        const root = createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
+<div className="mt-8 mb-6 text-center">
+<a href="https://www.facebook.com/search/top?q=指數三寶飯" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[10px] text-slate-300 hover:text-slate-500 transition-colors group">
+<span>Designed by</span><span className="font-bold underline decoration-slate-200 underline-offset-2 group-hover:decoration-slate-400">fb/指數三寶飯</span><ExternalLink size={10} className="opacity-60 group-hover:opacity-100" />
+</a>
+</div>
+</div>
+</div>
+</div>
+);
+};
+
+const root = createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
 </body>
 </html>
