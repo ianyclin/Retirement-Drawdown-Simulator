@@ -208,10 +208,11 @@
             const [initialCapital, setInitialCapital] = useState(2000); 
             const [initialWithdrawalRate, setInitialWithdrawalRate] = useState(4.0); 
             
-            const [stockRatio, setStockRatio] = useState(60);
+            // 預設為 80% 股債比
+            const [stockRatio, setStockRatio] = useState(80);
             
-            const [cagr, setCagr] = useState(7.0); 
-            const [volatility, setVolatility] = useState(11.0); 
+            const [cagr, setCagr] = useState(8.8); 
+            const [volatility, setVolatility] = useState(14.5); 
             const [inflation, setInflation] = useState(3.0); 
             const [years, setYears] = useState(30);
             const [simCount, setSimCount] = useState(1000);
@@ -382,7 +383,173 @@
                         const chartDataSurv = [];
 
                         universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
-                        const medianUniverseIdx = universePerformances[Math.floor(simCount / 2)].idx;
+                        const medianUniverse = universePerformances[Math.floor(simCount / 2)];
+                        const medianUniverseIdx = medianUniverse.idx;
+
+                        // 為了畫背景長條圖，重新提取這 1 個特定宇宙每一年的報酬率
+                        // 注意：marketReturns 陣列是 [0 到 years-1]
+                        const pathReturnsForChart = [];
+                        let nwTemp = initialCapital;
+                        let deadTemp = false;
+                        for (let t = 0; t < years; t++) {
+                             // 我們必須用同樣的 random 序列或是我們在上面直接把每次的 returns 存起來
+                             // 為了效能，我們在上面 universePerformances 可以存
+                        }
+                        // 修正：直接從第一個跑回圈的地方，把所有的 marketReturns 存進 auditData[0...years] 時，
+                        // 但那是第 0 個 universe。我們需要 P50 universe 的 marketReturn。
+                        // 我們在上頭跑時，並未保留每個 universe 的逐年報酬率陣列以節省記憶體。
+                        // 退而求其次：為了讓 P50 有背景長條圖，我們可以用淨值反推，或者再跑一次 RNG (固定 seed 不行，因為隨機數不同)。
+                        // 這裡採用一個最準確的解法：直接把 universePerformances 存入 { idx, totalReturn, returns: [] }
+                        
+                    }; // end runSimulation (由於要在原結構加回 returns，我直接在下面這版完整重建)
+                    
+                    // 重建 runSimulation 以完美支援背景圖
+                    const runSimulationWithReturns = () => {
+                        const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
+                        
+                        const pathsNW = { baseline: [], vanguard: [], guyton: [] };
+                        const pathsW = { baseline: [], vanguard: [], guyton: [] };
+                        const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
+                        
+                        let totals = {
+                            baseline: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
+                            vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
+                            guyton: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] }
+                        };
+
+                        const auditData = [];
+                        const universePerformances = []; 
+
+                        for (let i = 0; i < simCount; i++) {
+                            const marketReturns = [];
+                            const inflFactors = []; 
+                            let currentInflFactor = 1;
+                            let pathMarketReturn = 1; 
+                            
+                            for (let t = 0; t < years; t++) {
+                                const Z = randn_bm();
+                                let r = (cagr / 100) + (volatility / 100) * Z;
+                                
+                                if (sorrTest && t < 3) { r = -0.15; }
+
+                                marketReturns.push(r);
+                                pathMarketReturn *= (1 + r);
+                                
+                                currentInflFactor *= (1 + (inflation / 100));
+                                inflFactors.push(currentInflFactor);
+                                
+                                if (i === 0) {
+                                    auditData.push({
+                                        year: t + 1, marketReturn: r * 100, inflationMult: currentInflFactor,
+                                        baseline: {}, vanguard: {}, guyton: {}
+                                    });
+                                }
+                            }
+                            
+                            universePerformances.push({ idx: i, totalReturn: pathMarketReturn, returns: marketReturns });
+
+                            const simulateStrategy = (stratId, logicFn) => {
+                                let nw = initialCapital;
+                                let w = 0;
+                                let dead = false;
+                                const pathNW = [];
+                                const pathW = [];
+                                const pathRealW = [];
+                                let totW = 0;
+
+                                for (let t = 0; t < years; t++) {
+                                    let currentNote = '';
+                                    const expectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t-1];
+
+                                    if (!dead) {
+                                        const res = logicFn(t, nw, pathW, marketReturns, inflFactors, expectedRealW);
+                                        w = res.w;
+                                        currentNote = res.note;
+                                    } else {
+                                        w = 0;
+                                        currentNote = '資產耗盡';
+                                    }
+
+                                    if (w < expectedRealW - 0.1) totals[stratId].downgradedYears++;
+
+                                    if (!dead) {
+                                        nw -= w;
+                                        if (nw <= 0) { nw = 0; dead = true; }
+                                        else { nw *= (1 + marketReturns[t]); }
+                                    }
+                                    
+                                    totW += w;
+                                    pathNW.push(nw);
+                                    pathW.push(w);
+                                    pathRealW.push(t === 0 ? w : w / inflFactors[t-1]);
+                                    
+                                    if (!dead) survivals[stratId][t+1]++;
+                                    
+                                    if (i === 0) {
+                                        auditData[t][stratId].nw = nw;
+                                        auditData[t][stratId].w = w;
+                                        auditData[t][stratId].note = currentNote;
+                                    }
+                                }
+                                
+                                if (nw <= 0) totals[stratId].dead++;
+                                totals[stratId].finalNW.push(nw);
+                                totals[stratId].totalWithdrawn.push(totW);
+                                pathsNW[stratId].push(pathNW);
+                                pathsW[stratId].push(pathW);
+
+                                const meanW = pathRealW.reduce((a,b)=>a+b,0) / years;
+                                const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
+                                const stdW = Math.sqrt(varW);
+                                totals[stratId].wCVData.push(meanW > 0 ? (stdW / meanW) * 100 : 0);
+                            };
+
+                            simulateStrategy('baseline', (t, nw, histW, mr, inf, exp) => {
+                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+                                return { w: initialWithdrawal * inf[t-1], note: '依通膨調整' };
+                            });
+
+                            simulateStrategy('vanguard', (t, nw, histW, mr, inf, exp) => {
+                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+                                const expectedW = nw * (initialWithdrawalRate / 100); 
+                                const prevActualW = histW[t-1]; 
+                                const maxW = prevActualW * (1 + vanCeiling / 100); 
+                                const minW = prevActualW * (1 - vanFloor / 100);   
+                                const actualW = Math.min(Math.max(expectedW, minW), maxW);
+                                
+                                let note = '比例自然變動';
+                                if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限 (限縮)';
+                                else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限 (保護)';
+                                return { w: actualW, note };
+                            });
+
+                            simulateStrategy('guyton', (t, nw, histW, mr, inf, exp) => {
+                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+                                const prevReturn = mr[t-1];
+                                let nextW = histW[t-1];
+                                let note = '';
+                                
+                                if (prevReturn >= 0) { nextW *= (1 + inflation / 100); note = '隨通膨增加'; } 
+                                else { note = '❄️凍結通膨'; } 
+
+                                const wr = (nextW / nw) * 100;
+                                if (prevReturn < 0 && wr > initialWithdrawalRate * (1 + gkCapPreserveThresh/100)) {
+                                    nextW *= (1 - gkCapPreserveCut/100); note += ' | 🔴保本刪減';
+                                } else if (prevReturn > 0 && wr < initialWithdrawalRate * (1 - gkProsperityThresh/100)) {
+                                    nextW *= (1 + gkProsperityHike/100); note = '🟢繁榮加薪';
+                                }
+                                return { w: nextW, note };
+                            });
+                        }
+
+                        const chartDataNW = [];
+                        const chartDataW = [];
+                        const chartDataSurv = [];
+
+                        universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
+                        const medianUniverse = universePerformances[Math.floor(simCount / 2)];
+                        const medianUniverseIdx = medianUniverse.idx;
+                        const medianReturns = medianUniverse.returns; // 取得 P50 宇宙的市場表現
 
                         for (let t = 0; t <= years; t++) {
                             survivals.baseline[0] = simCount; survivals.vanguard[0] = simCount; survivals.guyton[0] = simCount;
@@ -397,6 +564,11 @@
                             const nwAtT = { year: t };
                             const wAtT = { year: t };
                             
+                            // 寫入當年的市場報酬 (供背景長條圖使用)
+                            const mRet = t > 0 ? medianReturns[t-1] * 100 : null;
+                            nwAtT.marketReturn = mRet;
+                            if (t < years) wAtT.marketReturn = mRet;
+
                             ['baseline', 'vanguard', 'guyton'].forEach(strat => {
                                 nwAtT[strat] = pathsNW[strat][medianUniverseIdx][t];
                                 if (t < years) wAtT[strat] = pathsW[strat][medianUniverseIdx][t];
@@ -421,7 +593,7 @@
                         return { chartDataNW, chartDataW, chartDataSurv, stats, auditData };
                     };
 
-                    const res = runSimulation();
+                    const res = runSimulationWithReturns();
                     setSimResults(res);
                     setIsSimulating(false);
                 }, 50);
@@ -445,7 +617,7 @@
                 return (
                     <div className="h-[300px] md:h-[400px] w-full mt-2 md:mt-4">
                         <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+                            <ComposedChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis 
                                     dataKey="year" 
@@ -458,22 +630,39 @@
                                     tickMargin={8} 
                                 />
                                 <YAxis 
+                                    yAxisId="left"
                                     stroke="#cbd5e1" 
                                     tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} 
                                     width={45}
                                     domain={viewMode === 'survival' ? [0, 100] : ['auto', 'auto']}
                                     tick={{fontSize: 10, fill: '#94a3b8'}}
                                 />
+                                {/* 雙軸與長條圖背景 (僅在非存活率檢視時顯示) */}
+                                {viewMode !== 'survival' && (
+                                    <YAxis 
+                                        yAxisId="right" 
+                                        orientation="right" 
+                                        type="number" 
+                                        tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} 
+                                        tick={{fontSize: 10, fill: '#cbd5e1'}} 
+                                        domain={['auto', 'auto']} 
+                                        width={35} 
+                                    />
+                                )}
                                 <RechartsTooltip content={<CustomTooltip />} />
                                 <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}/>
                                 
+                                {viewMode !== 'survival' && (
+                                    <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
+                                )}
+
                                 {strategiesDef.map(s => (
-                                    <Line key={`main_${s.id}`} type="monotone" dataKey={s.id} name={s.name.split(' ')[0]} stroke={s.color} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} legendType="none" />
+                                    <Line yAxisId="left" key={`main_${s.id}`} type="monotone" dataKey={s.id} name={s.name.split(' ')[0]} stroke={s.color} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} legendType="none" />
                                 ))}
                                 
-                                {viewMode === 'survival' && <ReferenceLine y={100} stroke="#e2e8f0" strokeDasharray="3 3" />}
-                                {viewMode !== 'survival' && <ReferenceLine y={0} stroke="#ef4444" strokeWidth={1} strokeDasharray="5 5" />}
-                            </LineChart>
+                                {viewMode === 'survival' && <ReferenceLine yAxisId="left" y={100} stroke="#e2e8f0" strokeDasharray="3 3" />}
+                                {viewMode !== 'survival' && <ReferenceLine yAxisId="left" y={0} stroke="#ef4444" strokeWidth={1} strokeDasharray="5 5" />}
+                            </ComposedChart>
                         </ResponsiveContainer>
                     </div>
                 );
@@ -586,8 +775,8 @@
                                                     <td className="px-3 md:px-4 py-2 sticky-col text-center font-bold text-slate-600 border-r border-slate-100">第 {row.year} 年</td>
                                                     <td className={`px-3 md:px-4 py-2 text-right font-mono font-bold ${isNegativeMarket ? 'text-rose-500' : 'text-emerald-600'}`}>{row.marketReturn > 0 ? '+' : ''}{row.marketReturn.toFixed(1)}%</td>
                                                     <td className="px-3 md:px-4 py-2 text-right font-mono text-slate-500">{row.inflationMult.toFixed(2)}x</td>
-                                                    <td className="px-3 md:px-4 py-2 text-right font-mono font-bold border-l border-slate-100 bg-slate-50/30" style={{ color: isDead ? '#94a3b8' : stratInfo.color }}>{Math.round(sData.w).toLocaleString()}</td>
-                                                    <td className="px-3 md:px-4 py-2 text-right font-mono font-bold text-slate-700">{Math.round(sData.nw).toLocaleString()}</td>
+                                                    <td className="px-3 md:px-4 py-2 text-right font-mono font-bold border-l border-slate-100 bg-slate-50/30" style={{ color: isDead ? '#94a3b8' : stratInfo.color }}>{Math.round(sData.w).toLocaleString()} 萬</td>
+                                                    <td className="px-3 md:px-4 py-2 text-right font-mono font-bold text-slate-700">{Math.round(sData.nw).toLocaleString()} 萬</td>
                                                     <td className="px-3 md:px-4 py-2 text-left">
                                                         <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] md:text-[11px] font-bold ${sData.note.includes('🔴') || sData.note.includes('耗盡') ? 'bg-rose-100 text-rose-700' : sData.note.includes('🟢') ? 'bg-emerald-100 text-emerald-700' : sData.note.includes('❄️') ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>
                                                             {sData.note}
@@ -612,13 +801,13 @@
                     guyton: simResults?.stats?.guyton?.successRate || 0,
                 },
                 {
-                    name: '生活品質佔比',
+                    name: '預期生活品質佔比',
                     baseline: simResults?.stats?.baseline?.qolRate || 0,
                     vanguard: simResults?.stats?.vanguard?.qolRate || 0,
                     guyton: simResults?.stats?.guyton?.qolRate || 0,
                 },
                 {
-                    name: '提領波動度',
+                    name: '提領變異係數(CV)',
                     baseline: simResults?.stats?.baseline?.medianCV || 0,
                     vanguard: simResults?.stats?.vanguard?.medianCV || 0,
                     guyton: simResults?.stats?.guyton?.medianCV || 0,
@@ -781,7 +970,8 @@
                                         </div>
                                         
                                         <div className="p-4 md:p-5 border-b border-slate-100 bg-white">
-                                            <h4 className="text-xs md:text-sm font-bold text-slate-700 mb-1">生存 vs 痛苦指數</h4>
+                                            <h4 className="text-sm font-bold text-slate-700 mb-1">生存率 vs 生活品質對比</h4>
+                                            <p className="text-[11px] text-slate-500 mb-4">動態提領的本質，就是用「犧牲部分年份的購買力(生活降級)」來換取「極高的資金存活率」的等價交換。</p>
                                             <div className="h-[200px] md:h-[250px] w-full mt-4">
                                                 <ResponsiveContainer width="100%" height="100%">
                                                     <BarChart data={barChartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }} barGap={2} barCategoryGap="15%">
