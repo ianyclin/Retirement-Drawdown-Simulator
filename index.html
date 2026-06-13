@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v3.9</title>
+    <title>退休動態提領模擬器 v4.0 - 旗艦版</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -38,7 +38,7 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, memo, useRef } from 'react';
+        import React, { useState, useEffect, memo } from 'react';
         import { createRoot } from 'react-dom/client';
         import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, BarChart } from 'recharts';
         import { Settings, Activity, ShieldCheck, Scale, BookOpen, TrendingUp, RefreshCw, Maximize2, FileSearch, LineChart as ChartIcon, ExternalLink, HelpCircle, PieChart } from 'lucide-react';
@@ -85,10 +85,9 @@
 
         // --- 股債配置連動模型 ---
         const getAssetAllocationParams = (stockRatio) => {
-            // 簡化的股債歷史風險報酬模型 (可根據需求微調)
             const stockReturn = 10.0; const stockVol = 18.0;
             const bondReturn = 4.0;  const bondVol = 5.0;
-            const correlation = 0.1; // 假設股債微弱正相關
+            const correlation = 0.1; 
 
             const wS = stockRatio / 100;
             const wB = 1 - wS;
@@ -105,7 +104,6 @@
                 v: parseFloat(expectedVol.toFixed(1))
             };
         };
-
 
         // --- UI Components ---
         const InputSlider = memo(({ label, value, setter, min, max, step, suffix, info, color = 'indigo' }) => {
@@ -130,28 +128,28 @@
 
             return (
                 <div className={`p-3 md:p-3 rounded-lg border ${bgColors[color]} flex flex-col h-full relative group`}>
-                    <div className="flex justify-between items-start gap-2 mb-3">
-                        <label className="text-xs font-bold text-slate-700 leading-snug flex-1 flex items-center gap-1">
-                            <span className="line-clamp-2">{label}</span>
+                    <div className="flex justify-between items-center gap-1 mb-3">
+                        <label className="text-xs font-bold text-slate-700 flex items-center gap-1 whitespace-nowrap tracking-tight">
+                            {label}
                             {info && (
                                 <div className="relative flex items-center">
                                     <HelpCircle size={13} className="text-slate-400 cursor-help" />
-                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal">
                                         {info}
                                         <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
                                     </div>
                                 </div>
                             )}
                         </label>
-                        <div className="flex items-center bg-white rounded border border-slate-300 shadow-sm px-1.5 py-0.5 shrink-0">
+                        <div className="flex items-center bg-white rounded border border-slate-300 shadow-sm px-1.5 py-0.5 shrink-0 min-w-0">
                             <input 
                                 type="number" step={step} value={inputValue} 
                                 onChange={(e) => setInputValue(e.target.value)} 
                                 onBlur={handleBlur}
                                 onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
-                                className="w-12 text-xs font-mono text-right bg-transparent outline-none p-0 appearance-none font-bold text-slate-700"
+                                className="w-10 sm:w-12 text-xs font-mono text-right bg-transparent outline-none p-0 appearance-none font-bold text-slate-700"
                             />
-                            <span className="text-[10px] text-slate-500 pl-1">{suffix}</span>
+                            <span className="text-[10px] text-slate-500 pl-1 shrink-0">{suffix}</span>
                         </div>
                     </div>
                     <div className="mt-auto pt-1">
@@ -207,14 +205,11 @@
             const [simSeed, setSimSeed] = useState(0); 
             const [showDefinitions, setShowDefinitions] = useState(false);
             
-            // General Settings
             const [initialCapital, setInitialCapital] = useState(2000); 
             const [initialWithdrawalRate, setInitialWithdrawalRate] = useState(4.0); 
             
-            // Asset Allocation
             const [stockRatio, setStockRatio] = useState(60);
             
-            // Market Parameters
             const [cagr, setCagr] = useState(7.0); 
             const [volatility, setVolatility] = useState(11.0); 
             const [inflation, setInflation] = useState(3.0); 
@@ -222,7 +217,6 @@
             const [simCount, setSimCount] = useState(1000);
             const [sorrTest, setSorrTest] = useState(false);
 
-            // Handle Stock Ratio Change
             const handleStockRatioChange = (newRatio) => {
                 setStockRatio(newRatio);
                 const params = getAssetAllocationParams(newRatio);
@@ -230,7 +224,6 @@
                 setVolatility(params.v);
             };
 
-            // Strategy Settings
             const [vanCeiling, setVanCeiling] = useState(5.0); 
             const [vanFloor, setVanFloor] = useState(2.5); 
             const [gkCapPreserveThresh, setGkCapPreserveThresh] = useState(20); 
@@ -290,7 +283,6 @@
                             
                             universePerformances.push({ idx: i, totalReturn: pathMarketReturn });
 
-                            // Helper for single simulation path
                             const simulateStrategy = (stratId, logicFn) => {
                                 let nw = initialCapital;
                                 let w = 0;
@@ -324,7 +316,6 @@
                                     totW += w;
                                     pathNW.push(nw);
                                     pathW.push(w);
-                                    // 記錄實質購買力提領額，用於計算 CV
                                     pathRealW.push(t === 0 ? w : w / inflFactors[t-1]);
                                     
                                     if (!dead) survivals[stratId][t+1]++;
@@ -342,20 +333,17 @@
                                 pathsNW[stratId].push(pathNW);
                                 pathsW[stratId].push(pathW);
 
-                                // Calculate CV of real withdrawals for this path
                                 const meanW = pathRealW.reduce((a,b)=>a+b,0) / years;
                                 const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
                                 const stdW = Math.sqrt(varW);
                                 totals[stratId].wCVData.push(meanW > 0 ? (stdW / meanW) * 100 : 0);
                             };
 
-                            // Run 1: Baseline
                             simulateStrategy('baseline', (t, nw, histW, mr, inf, exp) => {
                                 if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
                                 return { w: initialWithdrawal * inf[t-1], note: '依通膨調整' };
                             });
 
-                            // Run 2: Vanguard
                             simulateStrategy('vanguard', (t, nw, histW, mr, inf, exp) => {
                                 if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
                                 const expectedW = nw * (initialWithdrawalRate / 100); 
@@ -370,7 +358,6 @@
                                 return { w: actualW, note };
                             });
 
-                            // Run 3: Guyton
                             simulateStrategy('guyton', (t, nw, histW, mr, inf, exp) => {
                                 if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
                                 const prevReturn = mr[t-1];
@@ -427,7 +414,7 @@
                                 successRate: ((simCount - totals[strat].dead) / simCount) * 100,
                                 avgWithdrawn: totWs.reduce((a,b)=>a+b,0) / simCount,
                                 qolRate: 100 - ((totals[strat].downgradedYears / (simCount * years)) * 100),
-                                medianCV: cvs[Math.floor(simCount / 2)] // 使用中位數避免極端值干擾
+                                medianCV: cvs[Math.floor(simCount / 2)] 
                             };
                         });
 
@@ -460,7 +447,16 @@
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis dataKey="year" label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -15, fontSize: 10, fill: '#94a3b8' }} stroke="#cbd5e1" tick={{fontSize: 10, fill: '#94a3b8'}} tickMargin={8} minTickGap={15} />
+                                <XAxis 
+                                    dataKey="year" 
+                                    type="number"
+                                    domain={[0, 'dataMax']}
+                                    tickCount={Math.floor(years / 5) + 1}
+                                    label={{ value: '退休進入第 N 年', position: 'insideBottom', offset: -15, fontSize: 10, fill: '#94a3b8' }} 
+                                    stroke="#cbd5e1" 
+                                    tick={{fontSize: 10, fill: '#94a3b8'}} 
+                                    tickMargin={8} 
+                                />
                                 <YAxis 
                                     stroke="#cbd5e1" 
                                     tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} 
@@ -504,7 +500,7 @@
                         <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0 rounded-t-2xl">
                             <div>
                                 <h3 className="font-extrabold text-slate-800 flex items-center gap-1.5 text-sm md:text-base">
-                                    <FileSearch size={16} className="text-indigo-600"/> 單一隨機路徑詳細稽核
+                                    <FileSearch size={16} className="text-indigo-600"/> 深度稽核
                                 </h3>
                                 <p className="text-[10px] md:text-xs text-slate-500 mt-1">抽出單一平行宇宙，觀察在同樣市場漲跌下的策略反應。</p>
                             </div>
@@ -515,7 +511,7 @@
 
                         <div className="p-3 md:p-4 border-b border-slate-100 shrink-0">
                             <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-2 px-1">
-                                <div className="text-xs md:text-sm font-bold text-slate-700">🌌 軌跡視覺化</div>
+                                <div className="text-xs md:text-sm font-bold text-slate-700">軌跡視覺化</div>
                                 <div className="bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner w-full md:w-auto self-start">
                                     <button onClick={() => setAuditChartMode('netWorth')} className={`flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>比較淨值</button>
                                     <button onClick={() => setAuditChartMode('withdrawal')} className={`flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>比較提領</button>
@@ -526,9 +522,16 @@
                                 <ResponsiveContainer width="100%" height="100%">
                                     <ComposedChart data={auditChartData} margin={{ top: 5, right: -15, left: -25, bottom: 0 }}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                        <XAxis dataKey="year" tick={{fontSize: 9, fill: '#94a3b8'}} tickMargin={5} minTickGap={10} />
-                                        <YAxis yAxisId="left" type="number" tickFormatter={(val) => val >= 10000 ? (val/10000).toFixed(0)+'億' : val} tick={{fontSize: 9, fill: '#64748b', fontWeight: 'bold'}} width={40} />
-                                        <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => val.toFixed(0)+'%'} tick={{fontSize: 9, fill: '#cbd5e1'}} domain={['auto', 'auto']} width={35} />
+                                        <XAxis 
+                                            dataKey="year" 
+                                            type="number"
+                                            domain={[0, 'dataMax']}
+                                            tickCount={Math.floor(years / 5) + 1}
+                                            tick={{fontSize: 9, fill: '#94a3b8'}} 
+                                            tickMargin={5} 
+                                        />
+                                        <YAxis yAxisId="left" type="number" tickFormatter={(val) => typeof val === 'number' ? (val >= 10000 ? (val/10000).toFixed(0)+'億' : val.toLocaleString()) : val} tick={{fontSize: 9, fill: '#64748b', fontWeight: 'bold'}} width={40} />
+                                        <YAxis yAxisId="right" orientation="right" type="number" tickFormatter={(val) => typeof val === 'number' ? val.toFixed(0)+'%' : val} tick={{fontSize: 9, fill: '#cbd5e1'}} domain={['auto', 'auto']} width={35} />
                                         <RechartsTooltip content={<CustomTooltip />} />
                                         <Legend payload={legendPayload} verticalAlign="top" height={24} wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}/>
                                         
@@ -541,7 +544,6 @@
                             </div>
                         </div>
                         
-                        {/* 手機優化：水平滾動的按鈕列 */}
                         <div className="bg-slate-50/50 flex flex-col shrink-0 border-b border-slate-200">
                             <div className="flex overflow-x-auto no-scrollbar px-3 py-2 gap-2 border-b border-slate-100">
                                 {strategiesDef.map(s => (
@@ -561,7 +563,6 @@
                             </div>
                         </div>
 
-                        {/* 手機優化：設定 min-width 確保表格可水平滑動不擠壓 */}
                         <div className="flex-1 overflow-auto custom-scroll relative bg-white">
                             <div className="min-w-[600px]">
                                 <table className="w-full text-xs md:text-sm text-left whitespace-nowrap">
@@ -630,7 +631,7 @@
                         <div>
                             <h1 className="text-xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2 md:gap-3">
                                 <Activity className="w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0" />
-                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v3.9</span></span>
+                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v4.0 旗艦版</span></span>
                             </h1>
                             <p className="text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep">
                                 結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。<span className="md:hidden text-indigo-400">(建議橫向瀏覽)</span>
@@ -641,7 +642,7 @@
                             className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm shrink-0"
                         >
                             <BookOpen size={16} /> 
-                            {showDefinitions ? '隱藏計算原理' : '📖 展開策略計算原理'}
+                            {showDefinitions ? '隱藏計算原理' : '展開策略計算原理'}
                         </button>
                     </header>
 
@@ -744,10 +745,10 @@
                         <div className="lg:col-span-8 flex flex-col gap-4 md:gap-5 px-2 md:px-0">
                             <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1.5 gap-1 font-bold text-xs md:text-sm">
                                 <button onClick={() => setActiveTab('monteCarlo')} className={`flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'monteCarlo' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                    <ChartIcon size={16} /> <span className="hidden sm:inline">📈</span> 蒙地卡羅報表
+                                    <ChartIcon size={16} /> 蒙地卡羅報表
                                 </button>
                                 <button onClick={() => setActiveTab('auditTrail')} className={`flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'auditTrail' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                    <FileSearch size={16} /> <span className="hidden sm:inline">🔍</span> 深度稽核
+                                    <FileSearch size={16} /> 深度稽核
                                 </button>
                             </div>
 
@@ -823,7 +824,6 @@
                                             </div>
                                         </div>
 
-                                        {/* 手機優化：設定 min-width 允許水平滑動 */}
                                         <div className="overflow-x-auto custom-scroll bg-white">
                                             <div className="min-w-[800px]">
                                                 <table className="w-full text-xs md:text-sm text-center table-fixed">
