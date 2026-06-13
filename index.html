@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v4.1 - 旗艦版</title>
+    <title>退休動態提領模擬器 v4.0 - 旗艦版</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -208,6 +208,7 @@
             const [initialCapital, setInitialCapital] = useState(2000); 
             const [initialWithdrawalRate, setInitialWithdrawalRate] = useState(4.0); 
             
+            // 預設為 80% 股債比
             const [stockRatio, setStockRatio] = useState(80);
             
             const [cagr, setCagr] = useState(8.8); 
@@ -239,6 +240,170 @@
             useEffect(() => {
                 setIsSimulating(true);
                 const timer = setTimeout(() => {
+                    const runSimulation = () => {
+                        const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
+                        
+                        const pathsNW = { baseline: [], vanguard: [], guyton: [] };
+                        const pathsW = { baseline: [], vanguard: [], guyton: [] };
+                        const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
+                        
+                        let totals = {
+                            baseline: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
+                            vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] },
+                            guyton: { dead: 0, finalNW: [], totalWithdrawn: [], downgradedYears: 0, wCVData: [] }
+                        };
+
+                        const auditData = [];
+                        const universePerformances = []; 
+
+                        for (let i = 0; i < simCount; i++) {
+                            const marketReturns = [];
+                            const inflFactors = []; 
+                            let currentInflFactor = 1;
+                            let pathMarketReturn = 1; 
+                            
+                            for (let t = 0; t < years; t++) {
+                                const Z = randn_bm();
+                                let r = (cagr / 100) + (volatility / 100) * Z;
+                                
+                                if (sorrTest && t < 3) { r = -0.15; }
+
+                                marketReturns.push(r);
+                                pathMarketReturn *= (1 + r);
+                                
+                                currentInflFactor *= (1 + (inflation / 100));
+                                inflFactors.push(currentInflFactor);
+                                
+                                if (i === 0) {
+                                    auditData.push({
+                                        year: t + 1, marketReturn: r * 100, inflationMult: currentInflFactor,
+                                        baseline: {}, vanguard: {}, guyton: {}
+                                    });
+                                }
+                            }
+                            
+                            universePerformances.push({ idx: i, totalReturn: pathMarketReturn });
+
+                            const simulateStrategy = (stratId, logicFn) => {
+                                let nw = initialCapital;
+                                let w = 0;
+                                let dead = false;
+                                const pathNW = [];
+                                const pathW = [];
+                                const pathRealW = [];
+                                let totW = 0;
+
+                                for (let t = 0; t < years; t++) {
+                                    let currentNote = '';
+                                    const expectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t-1];
+
+                                    if (!dead) {
+                                        const res = logicFn(t, nw, pathW, marketReturns, inflFactors, expectedRealW);
+                                        w = res.w;
+                                        currentNote = res.note;
+                                    } else {
+                                        w = 0;
+                                        currentNote = '資產耗盡';
+                                    }
+
+                                    if (w < expectedRealW - 0.1) totals[stratId].downgradedYears++;
+
+                                    if (!dead) {
+                                        nw -= w;
+                                        if (nw <= 0) { nw = 0; dead = true; }
+                                        else { nw *= (1 + marketReturns[t]); }
+                                    }
+                                    
+                                    totW += w;
+                                    pathNW.push(nw);
+                                    pathW.push(w);
+                                    pathRealW.push(t === 0 ? w : w / inflFactors[t-1]);
+                                    
+                                    if (!dead) survivals[stratId][t+1]++;
+                                    
+                                    if (i === 0) {
+                                        auditData[t][stratId].nw = nw;
+                                        auditData[t][stratId].w = w;
+                                        auditData[t][stratId].note = currentNote;
+                                    }
+                                }
+                                
+                                if (nw <= 0) totals[stratId].dead++;
+                                totals[stratId].finalNW.push(nw);
+                                totals[stratId].totalWithdrawn.push(totW);
+                                pathsNW[stratId].push(pathNW);
+                                pathsW[stratId].push(pathW);
+
+                                const meanW = pathRealW.reduce((a,b)=>a+b,0) / years;
+                                const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
+                                const stdW = Math.sqrt(varW);
+                                totals[stratId].wCVData.push(meanW > 0 ? (stdW / meanW) * 100 : 0);
+                            };
+
+                            simulateStrategy('baseline', (t, nw, histW, mr, inf, exp) => {
+                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+                                return { w: initialWithdrawal * inf[t-1], note: '依通膨調整' };
+                            });
+
+                            simulateStrategy('vanguard', (t, nw, histW, mr, inf, exp) => {
+                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+                                const expectedW = nw * (initialWithdrawalRate / 100); 
+                                const prevActualW = histW[t-1]; 
+                                const maxW = prevActualW * (1 + vanCeiling / 100); 
+                                const minW = prevActualW * (1 - vanFloor / 100);   
+                                const actualW = Math.min(Math.max(expectedW, minW), maxW);
+                                
+                                let note = '比例自然變動';
+                                if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限 (限縮)';
+                                else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限 (保護)';
+                                return { w: actualW, note };
+                            });
+
+                            simulateStrategy('guyton', (t, nw, histW, mr, inf, exp) => {
+                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+                                const prevReturn = mr[t-1];
+                                let nextW = histW[t-1];
+                                let note = '';
+                                
+                                if (prevReturn >= 0) { nextW *= (1 + inflation / 100); note = '隨通膨增加'; } 
+                                else { note = '❄️凍結通膨'; } 
+
+                                const wr = (nextW / nw) * 100;
+                                if (prevReturn < 0 && wr > initialWithdrawalRate * (1 + gkCapPreserveThresh/100)) {
+                                    nextW *= (1 - gkCapPreserveCut/100); note += ' | 🔴保本刪減';
+                                } else if (prevReturn > 0 && wr < initialWithdrawalRate * (1 - gkProsperityThresh/100)) {
+                                    nextW *= (1 + gkProsperityHike/100); note = '🟢繁榮加薪';
+                                }
+                                return { w: nextW, note };
+                            });
+                        }
+
+                        const chartDataNW = [];
+                        const chartDataW = [];
+                        const chartDataSurv = [];
+
+                        universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
+                        const medianUniverse = universePerformances[Math.floor(simCount / 2)];
+                        const medianUniverseIdx = medianUniverse.idx;
+
+                        // 為了畫背景長條圖，重新提取這 1 個特定宇宙每一年的報酬率
+                        // 注意：marketReturns 陣列是 [0 到 years-1]
+                        const pathReturnsForChart = [];
+                        let nwTemp = initialCapital;
+                        let deadTemp = false;
+                        for (let t = 0; t < years; t++) {
+                             // 我們必須用同樣的 random 序列或是我們在上面直接把每次的 returns 存起來
+                             // 為了效能，我們在上面 universePerformances 可以存
+                        }
+                        // 修正：直接從第一個跑回圈的地方，把所有的 marketReturns 存進 auditData[0...years] 時，
+                        // 但那是第 0 個 universe。我們需要 P50 universe 的 marketReturn。
+                        // 我們在上頭跑時，並未保留每個 universe 的逐年報酬率陣列以節省記憶體。
+                        // 退而求其次：為了讓 P50 有背景長條圖，我們可以用淨值反推，或者再跑一次 RNG (固定 seed 不行，因為隨機數不同)。
+                        // 這裡採用一個最準確的解法：直接把 universePerformances 存入 { idx, totalReturn, returns: [] }
+                        
+                    }; // end runSimulation (由於要在原結構加回 returns，我直接在下面這版完整重建)
+                    
+                    // 重建 runSimulation 以完美支援背景圖
                     const runSimulationWithReturns = () => {
                         const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
                         
@@ -328,12 +493,11 @@
                                 }
                                 
                                 if (nw <= 0) totals[stratId].dead++;
+                                else totals[stratId].survivorWithdrawn.push(totW); // 條件平均：僅納入順利走完全程的路徑
                                 totals[stratId].finalNW.push(nw);
                                 totals[stratId].totalWithdrawn.push(totW);
-                                
-                                if (nw > 0) {
-                                    totals[stratId].survivorWithdrawn.push(totW);
-                                }
+                                pathsNW[stratId].push(pathNW);
+                                pathsW[stratId].push(pathW);
 
                                 const meanW = pathRealW.reduce((a,b)=>a+b,0) / years;
                                 const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
@@ -355,8 +519,8 @@
                                 const actualW = Math.min(Math.max(expectedW, minW), maxW);
                                 
                                 let note = '比例自然變動';
-                                if (actualW === maxW && Math.abs(expectedW - maxW) > 0.1) note = '🟢觸發上限 (限縮)';
-                                else if (actualW === minW && Math.abs(expectedW - minW) > 0.1) note = '🔴觸發下限 (保護)';
+                                if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限 (限縮)';
+                                else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限 (保護)';
                                 return { w: actualW, note };
                             });
 
@@ -386,7 +550,7 @@
                         universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
                         const medianUniverse = universePerformances[Math.floor(simCount / 2)];
                         const medianUniverseIdx = medianUniverse.idx;
-                        const medianReturns = medianUniverse.returns; 
+                        const medianReturns = medianUniverse.returns; // 取得 P50 宇宙的市場表現
 
                         for (let t = 0; t <= years; t++) {
                             survivals.baseline[0] = simCount; survivals.vanguard[0] = simCount; survivals.guyton[0] = simCount;
@@ -401,6 +565,7 @@
                             const nwAtT = { year: t };
                             const wAtT = { year: t };
                             
+                            // 寫入當年的市場報酬 (供背景長條圖使用)
                             const mRet = t > 0 ? medianReturns[t-1] * 100 : null;
                             nwAtT.marketReturn = mRet;
                             if (t < years) wAtT.marketReturn = mRet;
@@ -416,15 +581,14 @@
 
                         const stats = {};
                         ['baseline', 'vanguard', 'guyton'].forEach(strat => {
-                            const survivorWs = totals[strat].survivorWithdrawn;
-                            const avgWithdrawn = survivorWs.length > 0 ? (survivorWs.reduce((a,b)=>a+b,0) / survivorWs.length) : 0;
                             const cvs = totals[strat].wCVData.sort((a,b)=>a-b);
-
+                            const survWs = totals[strat].survivorWithdrawn; // 已排除破產路徑
                             stats[strat] = {
                                 successRate: ((simCount - totals[strat].dead) / simCount) * 100,
-                                avgWithdrawn: avgWithdrawn,
+                                // 生涯總提領均值：條件平均，分母為「存活路徑數」而非 simCount，排除早夭宇宙的拖累
+                                avgWithdrawn: survWs.length > 0 ? survWs.reduce((a,b)=>a+b,0) / survWs.length : 0,
                                 qolRate: 100 - ((totals[strat].downgradedYears / (simCount * years)) * 100),
-                                medianCV: cvs[Math.floor(simCount / 2)] || 0 
+                                medianCV: cvs[Math.floor(simCount / 2)] 
                             };
                         });
 
@@ -475,6 +639,7 @@
                                     domain={viewMode === 'survival' ? [0, 100] : ['auto', 'auto']}
                                     tick={{fontSize: 10, fill: '#94a3b8'}}
                                 />
+                                {/* 雙軸與長條圖背景 (僅在非存活率檢視時顯示) */}
                                 {viewMode !== 'survival' && (
                                     <YAxis 
                                         yAxisId="right" 
@@ -490,8 +655,7 @@
                                 <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}/>
                                 
                                 {viewMode !== 'survival' && (
-                                    // 修正崩潰關鍵：在此處加上 barSize={12} 賦予背景長條圖強制寬度
-                                    <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} barSize={12} />
+                                    <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
                                 )}
 
                                 {strategiesDef.map(s => (
@@ -562,8 +726,7 @@
                                         <RechartsTooltip content={<CustomTooltip />} />
                                         <Legend payload={legendPayload} verticalAlign="top" height={24} wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}/>
                                         
-                                        {/* 修正崩潰關鍵：在此處加上 barSize={12} 賦予背景長條圖強制寬度 */}
-                                        <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} barSize={12} />
+                                        <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
                                         <Line yAxisId="left" type="monotone" dataKey="baseline" name="傳統" stroke="#94a3b8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
                                         <Line yAxisId="left" type="monotone" dataKey="vanguard" name="Vanguard" stroke="#0ea5e9" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
                                         <Line yAxisId="left" type="monotone" dataKey="guyton" name="Guyton" stroke="#f59e0b" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
@@ -659,7 +822,7 @@
                         <div>
                             <h1 className="text-xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2 md:gap-3">
                                 <Activity className="w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0" />
-                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v4.1 最終穩定版</span></span>
+                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v4.0 旗艦版</span></span>
                             </h1>
                             <p className="text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep">
                                 結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。<span className="md:hidden text-indigo-400">(建議橫向瀏覽)</span>
@@ -749,15 +912,14 @@
                                     <Scale className="w-4 h-4 text-slate-500"/> 動態護欄閥值微調
                                 </h3>
                                 <div className="mb-5">
-                                    <h4 className="text-[11px] md:text-xs font-bold text-sky-700 mb-2 flex items-center gap-1"><ShieldCheck size={14}/> Vanguard 變動護欄</h4>
+                                    <h4 className="text-[11px] md:text-xs font-bold text-sky-700 mb-2 flex items-center gap-1"><ShieldCheck size={14}/> Vanguard</h4>
                                     <div className="grid grid-cols-2 gap-2">
                                         <InputSlider label="提領增加上限" value={vanCeiling} setter={setVanCeiling} min={0} max={15} step={0.5} suffix="%" color="sky" />
                                         <InputSlider label="提領減少下限" value={vanFloor} setter={setVanFloor} min={0} max={15} step={0.5} suffix="%" color="sky" />
                                     </div>
                                 </div>
-
                                 <div className="pt-4 border-t border-slate-100">
-                                    <h4 className="text-[11px] md:text-xs font-bold text-amber-700 mb-2 flex items-center gap-1"><TrendingUp size={14}/> Guyton-Klinger 決策閥值</h4>
+                                    <h4 className="text-[11px] md:text-xs font-bold text-amber-700 mb-2 flex items-center gap-1"><TrendingUp size={14}/> Guyton-Klinger</h4>
                                     <div className="grid grid-cols-2 gap-2 mb-2">
                                         <InputSlider label="保本:觸發閥值" value={gkCapPreserveThresh} setter={setGkCapPreserveThresh} min={0} max={50} step={5} suffix="%" color="amber" info="提領率相對初始攀升X%時觸發" />
                                         <InputSlider label="保本:削減提領" value={gkCapPreserveCut} setter={setGkCapPreserveCut} min={0} max={30} step={5} suffix="%" color="amber" />
@@ -800,12 +962,7 @@
                                                 <button onClick={() => setViewMode('survival')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>存活率</button>
                                             </div>
                                         </div>
-                                        {isSimulating || !simResults ? (
-                                            <div className="h-[300px] md:h-[400px] w-full flex flex-col items-center justify-center bg-slate-50 rounded-lg gap-3">
-                                                <Activity className="animate-pulse text-indigo-400" size={32} />
-                                                <span className="text-indigo-400 font-bold text-sm tracking-widest">模擬運算中...</span>
-                                            </div>
-                                        ) : renderChart()}
+                                        {isSimulating ? <div className="h-[300px] md:h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg"><Activity className="animate-pulse text-indigo-400" size={32} /></div> : renderChart()}
                                     </div>
 
                                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -864,19 +1021,25 @@
                                                 <table className="w-full text-xs md:text-sm text-center table-fixed">
                                                     <thead className="font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200">
                                                         <tr>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100">策略</th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-emerald-700 bg-emerald-50/50">存活率</th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50">
-                                                                <div>預期生活品質佔比</div>
-                                                                <div className="text-[9px] font-normal text-blue-600/70 mt-0.5 tracking-tighter leading-tight">(維持或超越首年購買力)</div>
+                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 align-top">策略</th>
+                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-emerald-700 bg-emerald-50/50 align-top">存活率</th>
+                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50 align-top">
+                                                                <div className="flex flex-col items-center gap-0.5">
+                                                                    <span>預期生活品質佔比</span>
+                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-blue-400/90">維持或超越首年購買力</span>
+                                                                </div>
                                                             </th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-amber-700 bg-amber-50/50">
-                                                                <div>提領變異係數(CV)</div>
-                                                                <div className="text-[9px] font-normal text-amber-600/70 mt-0.5 tracking-tighter leading-tight">(越低越穩，生活費不亂跳)</div>
+                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-amber-700 bg-amber-50/50 align-top">
+                                                                <div className="flex flex-col items-center gap-0.5">
+                                                                    <span>提領變異係數(CV)</span>
+                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-amber-500/90">越低越穩,生活費不亂跳</span>
+                                                                </div>
                                                             </th>
-                                                            <th className="w-1/5 px-2 py-3 text-slate-600 bg-slate-100/50">
-                                                                <div>生涯總提領均值</div>
-                                                                <div className="text-[9px] font-normal text-slate-500 mt-0.5 tracking-tighter leading-tight">(排除破產，僅計存活路徑)</div>
+                                                            <th className="w-1/5 px-2 py-3 text-slate-600 bg-slate-100/50 align-top">
+                                                                <div className="flex flex-col items-center gap-0.5">
+                                                                    <span>生涯總提領均值</span>
+                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-slate-400">排除破產路徑的條件平均</span>
+                                                                </div>
                                                             </th>
                                                         </tr>
                                                     </thead>
