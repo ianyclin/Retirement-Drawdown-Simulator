@@ -208,7 +208,6 @@
             const [initialCapital, setInitialCapital] = useState(2000); 
             const [initialWithdrawalRate, setInitialWithdrawalRate] = useState(4.0); 
             
-            // 預設為 80% 股債比
             const [stockRatio, setStockRatio] = useState(80);
             
             const [cagr, setCagr] = useState(8.8); 
@@ -247,7 +246,6 @@
                         const pathsW = { baseline: [], vanguard: [], guyton: [] };
                         const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
                         
-                        // 包含完整的統計陣列與變異係數紀錄，以及「倖存者總提領 (survivorWithdrawn)」
                         let totals = {
                             baseline: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] },
                             vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] },
@@ -333,7 +331,6 @@
                                 totals[stratId].finalNW.push(nw);
                                 totals[stratId].totalWithdrawn.push(totW);
                                 
-                                // 修正：若資產未耗盡，則將總提領記錄至「倖存者清單 (survivorWithdrawn)」
                                 if (nw > 0) {
                                     totals[stratId].survivorWithdrawn.push(totW);
                                 }
@@ -419,7 +416,6 @@
 
                         const stats = {};
                         ['baseline', 'vanguard', 'guyton'].forEach(strat => {
-                            // 修正：計算生涯總提領均值時，僅納入未破產的路徑
                             const survivorWs = totals[strat].survivorWithdrawn;
                             const avgWithdrawn = survivorWs.length > 0 ? (survivorWs.reduce((a,b)=>a+b,0) / survivorWs.length) : 0;
                             const cvs = totals[strat].wCVData.sort((a,b)=>a-b);
@@ -494,7 +490,8 @@
                                 <Legend payload={legendPayload} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}/>
                                 
                                 {viewMode !== 'survival' && (
-                                    <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
+                                    // 修正崩潰關鍵：在此處加上 barSize={12} 賦予背景長條圖強制寬度
+                                    <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} barSize={12} />
                                 )}
 
                                 {strategiesDef.map(s => (
@@ -565,7 +562,8 @@
                                         <RechartsTooltip content={<CustomTooltip />} />
                                         <Legend payload={legendPayload} verticalAlign="top" height={24} wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}/>
                                         
-                                        <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} />
+                                        {/* 修正崩潰關鍵：在此處加上 barSize={12} 賦予背景長條圖強制寬度 */}
+                                        <Bar yAxisId="right" dataKey="marketReturn" name="市場報酬" fill="#e2e8f0" radius={[2, 2, 0, 0]} opacity={0.6} barSize={12} />
                                         <Line yAxisId="left" type="monotone" dataKey="baseline" name="傳統" stroke="#94a3b8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
                                         <Line yAxisId="left" type="monotone" dataKey="vanguard" name="Vanguard" stroke="#0ea5e9" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
                                         <Line yAxisId="left" type="monotone" dataKey="guyton" name="Guyton" stroke="#f59e0b" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
@@ -661,7 +659,7 @@
                         <div>
                             <h1 className="text-xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2 md:gap-3">
                                 <Activity className="w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0" />
-                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v4.1 最終版</span></span>
+                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v4.1 最終穩定版</span></span>
                             </h1>
                             <p className="text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep">
                                 結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。<span className="md:hidden text-indigo-400">(建議橫向瀏覽)</span>
@@ -802,7 +800,12 @@
                                                 <button onClick={() => setViewMode('survival')} className={`flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>存活率</button>
                                             </div>
                                         </div>
-                                        {isSimulating ? <div className="h-[300px] md:h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg"><Activity className="animate-pulse text-indigo-400" size={32} /></div> : renderChart()}
+                                        {isSimulating || !simResults ? (
+                                            <div className="h-[300px] md:h-[400px] w-full flex flex-col items-center justify-center bg-slate-50 rounded-lg gap-3">
+                                                <Activity className="animate-pulse text-indigo-400" size={32} />
+                                                <span className="text-indigo-400 font-bold text-sm tracking-widest">模擬運算中...</span>
+                                            </div>
+                                        ) : renderChart()}
                                     </div>
 
                                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
