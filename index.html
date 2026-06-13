@@ -73,12 +73,24 @@
             },
             { 
                 id: 'guyton', name: 'Guyton-Klinger', color: '#f59e0b', icon: <TrendingUp size={16}/>, 
-                desc: '負報酬凍結通膨；提領率飆高時強制限縮生活費(保本)，提領率過低時主動加薪(繁榮)。',
+                desc: '修正版提領法則：前一年負報酬「且」調升後提領率仍高於初始率時才凍結通膨；提領率衝破上護欄則保本減薪(末15年停用)，跌破下護欄則繁榮加薪。護欄只看提領率相對初始率的位置，與報酬正負脫鉤。',
                 calcSteps: [
-                    '若當年市場負報酬，凍結通膨調整(次年提領=去年)',
-                    '當下真實提領率 = 預期提領額 ÷ 當下資產餘額',
-                    '[保本]: 負報酬 且 提領率 > 初始提領率×(1+保本閥值)，提領額削減 X%',
-                    '[繁榮]: 正報酬 且 提領率 < 初始提領率×(1-繁榮閥值)，提領額增加 Y%'
+                    '候選提領 = 去年提領 × (1 + 通膨率)',
+                    '修正WR：僅當「去年負報酬」且「調升後提領率 > 初始提領率」才凍結(維持去年金額，不補)',
+                    '當前提領率 = 候選提領 ÷ 當下資產餘額',
+                    '[保本CPR] 提領率 > 初始率×(1+保本閥值) 且 剩餘年數 > 15：提領削減 X%',
+                    '[繁榮PR] 提領率 < 初始率×(1−繁榮閥值)：提領增加 Y%(不受末15年限制)'
+                ]
+            },
+            {
+                id: 'riskbased', name: '風險基準護欄', color: '#8b5cf6', icon: <Scale size={16}/>,
+                desc: '觸發訊號改用「成功率(POS)」而非提領率。每年依當下資產與剩餘年限重算「跑完不破產的機率」；POS 衝破上界代表太省→加薪，跌破下界代表危險→減薪，並把支出重設回目標成功率。護欄因此隨年限自動收放，年齡越大同樣資產越安全。',
+                calcSteps: [
+                    '候選提領 = 去年提領 × (1 + 通膨率)',
+                    '當前成功率 POS = f(候選提領 ÷ 當下資產, 剩餘年限)　← 預先以蒙地卡羅建表查得',
+                    '[加薪] POS > 上界(預設99%)：把支出重設到「目標POS(85%)」對應的較高金額',
+                    '[減薪] POS < 下界(預設70%)：把支出重設到「目標POS(85%)」對應的較低金額',
+                    '介於上下界之間：維持候選提領(只跟通膨)'
                 ]
             }
         ];
@@ -406,16 +418,56 @@
                     // 重建 runSimulation 以完美支援背景圖
                     const runSimulationWithReturns = () => {
                         const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
-                        
-                        const pathsNW = { baseline: [], vanguard: [], guyton: [] };
-                        const pathsW = { baseline: [], vanguard: [], guyton: [] };
-                        const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0) };
-                        
-                        let totals = {
-                            baseline: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] },
-                            vanguard: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] },
-                            guyton: { dead: 0, finalNW: [], totalWithdrawn: [], survivorWithdrawn: [], downgradedYears: 0, wCVData: [] }
+
+                        // === 風險基準護欄:預先以蒙地卡羅建立 成功率(POS)查表 ===
+                        // 在「剩餘 h 年、固定實質支出佔當下資產 rate%」下，估計跑完不破產的機率
+                        const rbTargetPOS = 0.85, rbUpperPOS = 0.99, rbLowerPOS = 0.70;
+                        const posInnerTrials = 300;
+                        const posRateGrid = []; for (let r = 1.0; r <= 12.0001; r += 0.25) posRateGrid.push(r);
+                        const posTable = [];
+                        for (let h = 0; h <= years; h++) {
+                            const row = [];
+                            for (let gi = 0; gi < posRateGrid.length; gi++) {
+                                if (h === 0) { row.push(1); continue; }
+                                const rate = posRateGrid[gi] / 100;
+                                let surv = 0;
+                                for (let k = 0; k < posInnerTrials; k++) {
+                                    let p = 1.0, dead = false;
+                                    for (let y = 0; y < h; y++) {
+                                        const Z = randn_bm();
+                                        const nomR = (cagr / 100) + (volatility / 100) * Z;
+                                        const realR = (1 + nomR) / (1 + inflation / 100) - 1; // 實質報酬
+                                        p -= rate;
+                                        if (p <= 0) { dead = true; break; }
+                                        p *= (1 + realR);
+                                    }
+                                    if (!dead) surv++;
+                                }
+                                row.push(surv / posInnerTrials);
+                            }
+                            posTable.push(row);
+                        }
+                        const lookupPOS = (ratePct, h) => {
+                            if (h <= 0) return 1;
+                            const hh = Math.min(h, years);
+                            let gi = Math.round((ratePct - 1.0) / 0.25);
+                            gi = Math.max(0, Math.min(posRateGrid.length - 1, gi));
+                            return posTable[hh][gi];
                         };
+                        const rateForPOS = (targetPOS, h) => { // 反查:達成 targetPOS 的提領率(%)
+                            if (h <= 0) return posRateGrid[posRateGrid.length - 1];
+                            const row = posTable[Math.min(h, years)];
+                            let best = posRateGrid[0]; // POS 隨提領率遞減
+                            for (let gi = 0; gi < row.length; gi++) { if (row[gi] >= targetPOS) best = posRateGrid[gi]; else break; }
+                            return best;
+                        };
+
+                        const pathsNW = { baseline: [], vanguard: [], guyton: [], riskbased: [] };
+                        const pathsW = { baseline: [], vanguard: [], guyton: [], riskbased: [] };
+                        const survivals = { baseline: new Array(years + 1).fill(0), vanguard: new Array(years + 1).fill(0), guyton: new Array(years + 1).fill(0), riskbased: new Array(years + 1).fill(0) };
+                        
+                        const mkTotal = () => ({ dead: 0, finalNW: [], totalWithdrawn: [], allRealWithdrawn: [], survivorWithdrawn: [], survivorRealWithdrawn: [], survivorDowngraded: 0, survivorYears: 0, wCVData: [] });
+                        let totals = { baseline: mkTotal(), vanguard: mkTotal(), guyton: mkTotal(), riskbased: mkTotal() };
 
                         const auditData = [];
                         const universePerformances = []; 
@@ -441,7 +493,7 @@
                                 if (i === 0) {
                                     auditData.push({
                                         year: t + 1, marketReturn: r * 100, inflationMult: currentInflFactor,
-                                        baseline: {}, vanguard: {}, guyton: {}
+                                        baseline: {}, vanguard: {}, guyton: {}, riskbased: {}
                                     });
                                 }
                             }
@@ -456,6 +508,7 @@
                                 const pathW = [];
                                 const pathRealW = [];
                                 let totW = 0;
+                                let pathDowngraded = 0; // 該路徑「未達首年購買力」的年數
 
                                 for (let t = 0; t < years; t++) {
                                     let currentNote = '';
@@ -470,7 +523,7 @@
                                         currentNote = '資產耗盡';
                                     }
 
-                                    if (w < expectedRealW - 0.1) totals[stratId].downgradedYears++;
+                                    if (w < expectedRealW - 0.1) pathDowngraded++;
 
                                     if (!dead) {
                                         nw -= w;
@@ -492,17 +545,28 @@
                                     }
                                 }
                                 
-                                if (nw <= 0) totals[stratId].dead++;
-                                else totals[stratId].survivorWithdrawn.push(totW); // 條件平均：僅納入順利走完全程的路徑
+                                const survived = nw > 0;
+                                const realTotal = pathRealW.reduce((a,b)=>a+b,0); // 全程實質提領；破產路徑=斷炊前累積(尾段為0)
+                                if (!survived) totals[stratId].dead++;
                                 totals[stratId].finalNW.push(nw);
                                 totals[stratId].totalWithdrawn.push(totW);
+                                totals[stratId].allRealWithdrawn.push(realTotal); // 全宇宙:含破產路徑(天生被存活率加權)
                                 pathsNW[stratId].push(pathNW);
                                 pathsW[stratId].push(pathW);
 
-                                const meanW = pathRealW.reduce((a,b)=>a+b,0) / years;
-                                const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
-                                const stdW = Math.sqrt(varW);
-                                totals[stratId].wCVData.push(meanW > 0 ? (stdW / meanW) * 100 : 0);
+                                // 口徑統一：生活品質、CV、生涯總實質提領 全部「僅計順利走完全程的存活路徑」
+                                // 存活路徑不存在歸零年，故不會被早夭尾段的 0 污染
+                                if (survived) {
+                                    totals[stratId].survivorWithdrawn.push(totW);          // 名目（保留備用）
+                                    totals[stratId].survivorRealWithdrawn.push(realTotal); // 實質
+                                    totals[stratId].survivorDowngraded += pathDowngraded;
+                                    totals[stratId].survivorYears += years;
+
+                                    const meanW = realTotal / years;
+                                    const varW = pathRealW.reduce((a,b)=>a+Math.pow(b-meanW, 2),0) / years;
+                                    const stdW = Math.sqrt(varW);
+                                    totals[stratId].wCVData.push(meanW > 0 ? (stdW / meanW) * 100 : 0);
+                                }
                             };
 
                             simulateStrategy('baseline', (t, nw, histW, mr, inf, exp) => {
@@ -527,19 +591,49 @@
                             simulateStrategy('guyton', (t, nw, histW, mr, inf, exp) => {
                                 if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
                                 const prevReturn = mr[t-1];
-                                let nextW = histW[t-1];
-                                let note = '';
-                                
-                                if (prevReturn >= 0) { nextW *= (1 + inflation / 100); note = '隨通膨增加'; } 
-                                else { note = '❄️凍結通膨'; } 
+                                const prevW = histW[t-1];
+                                let nextW, note;
 
+                                // 規則1+2 修正版提領法則(Modified WR, GK 2006 p.5)＋通膨法則(IR)
+                                // 僅在「前一年負報酬」且「調升後提領率仍高於初始率」時凍結；否則照通膨調升(不補)
+                                const inflatedW = prevW * (1 + inflation / 100);
+                                const inflatedWR = (inflatedW / nw) * 100;
+                                if (prevReturn < 0 && inflatedWR > initialWithdrawalRate) {
+                                    nextW = prevW; note = '❄️凍結通膨(WR)';
+                                } else {
+                                    nextW = inflatedW; note = '隨通膨調升';
+                                }
+
+                                // 護欄以「當前提領率 vs 初始提領率」判定，與前一年報酬正負脫鉤(GK 2006 Table 5)
                                 const wr = (nextW / nw) * 100;
-                                if (prevReturn < 0 && wr > initialWithdrawalRate * (1 + gkCapPreserveThresh/100)) {
-                                    nextW *= (1 - gkCapPreserveCut/100); note += ' | 🔴保本刪減';
-                                } else if (prevReturn > 0 && wr < initialWithdrawalRate * (1 - gkProsperityThresh/100)) {
-                                    nextW *= (1 + gkProsperityHike/100); note = '🟢繁榮加薪';
+                                const yearsRemaining = years - t; // 含當年在內的剩餘年數
+                                if (wr > initialWithdrawalRate * (1 + gkCapPreserveThresh/100) && yearsRemaining > 15) {
+                                    // 保本法則 CPR：提領率衝破上護欄(初始×1.2)則砍10%；最後15年停用
+                                    nextW *= (1 - gkCapPreserveCut/100); note += ' | 🔴保本刪減(CPR)';
+                                } else if (wr < initialWithdrawalRate * (1 - gkProsperityThresh/100)) {
+                                    // 繁榮法則 PR：提領率跌破下護欄(初始×0.8)則加薪10%(不受最後15年限制)
+                                    nextW *= (1 + gkProsperityHike/100); note += ' | 🟢繁榮加薪(PR)';
                                 }
                                 return { w: nextW, note };
+                            });
+
+                            simulateStrategy('riskbased', (t, nw, histW, mr, inf, exp) => {
+                                if (t === 0) return { w: initialWithdrawal, note: '初始提領' };
+                                const h = years - t;                               // 剩餘年限(含當年)
+                                const candidate = histW[t-1] * (1 + inflation / 100); // 先跟通膨
+                                const candRatePct = (candidate / nw) * 100;
+                                const pos = lookupPOS(candRatePct, h);             // 維持此支出的成功率
+                                let w = candidate, note = '維持(通膨調整)';
+                                if (pos > rbUpperPOS) {
+                                    w = (rateForPOS(rbTargetPOS, h) / 100) * nw;   // 太安全→重設到目標POS(較高)
+                                    if (w < candidate) w = candidate;              // 加薪不反向
+                                    note = '🟢成功率過高→加薪';
+                                } else if (pos < rbLowerPOS) {
+                                    w = (rateForPOS(rbTargetPOS, h) / 100) * nw;   // 太危險→重設到目標POS(較低)
+                                    if (w > candidate) w = candidate;              // 減薪不反向
+                                    note = '🔴成功率過低→減薪';
+                                }
+                                return { w, note };
                             });
                         }
 
@@ -553,13 +647,14 @@
                         const medianReturns = medianUniverse.returns; // 取得 P50 宇宙的市場表現
 
                         for (let t = 0; t <= years; t++) {
-                            survivals.baseline[0] = simCount; survivals.vanguard[0] = simCount; survivals.guyton[0] = simCount;
+                            survivals.baseline[0] = simCount; survivals.vanguard[0] = simCount; survivals.guyton[0] = simCount; survivals.riskbased[0] = simCount;
                             
                             chartDataSurv.push({
                                 year: t,
                                 baseline: (survivals.baseline[t] / simCount) * 100,
                                 vanguard: (survivals.vanguard[t] / simCount) * 100,
-                                guyton: (survivals.guyton[t] / simCount) * 100
+                                guyton: (survivals.guyton[t] / simCount) * 100,
+                                riskbased: (survivals.riskbased[t] / simCount) * 100
                             });
 
                             const nwAtT = { year: t };
@@ -570,7 +665,7 @@
                             nwAtT.marketReturn = mRet;
                             if (t < years) wAtT.marketReturn = mRet;
 
-                            ['baseline', 'vanguard', 'guyton'].forEach(strat => {
+                            ['baseline', 'vanguard', 'guyton', 'riskbased'].forEach(strat => {
                                 nwAtT[strat] = pathsNW[strat][medianUniverseIdx][t];
                                 if (t < years) wAtT[strat] = pathsW[strat][medianUniverseIdx][t];
                             });
@@ -580,15 +675,20 @@
                         }
 
                         const stats = {};
-                        ['baseline', 'vanguard', 'guyton'].forEach(strat => {
-                            const cvs = totals[strat].wCVData.sort((a,b)=>a-b);
-                            const survWs = totals[strat].survivorWithdrawn; // 已排除破產路徑
+                        ['baseline', 'vanguard', 'guyton', 'riskbased'].forEach(strat => {
+                            const cvs = totals[strat].wCVData.sort((a,b)=>a-b); // 僅含存活路徑
+                            const survRealWs = totals[strat].survivorRealWithdrawn;
+                            const survCount = survRealWs.length;
+                            const allRealWs = totals[strat].allRealWithdrawn;
                             stats[strat] = {
+                                // 全宇宙視角
                                 successRate: ((simCount - totals[strat].dead) / simCount) * 100,
-                                // 生涯總提領均值：條件平均，分母為「存活路徑數」而非 simCount，排除早夭宇宙的拖累
-                                avgWithdrawn: survWs.length > 0 ? survWs.reduce((a,b)=>a+b,0) / survWs.length : 0,
-                                qolRate: 100 - ((totals[strat].downgradedYears / (simCount * years)) * 100),
-                                medianCV: cvs[Math.floor(simCount / 2)] 
+                                // 全宇宙期望實質提領：含破產路徑，天生被存活率加權，可拿來公平排序策略
+                                avgRealAllUniverse: allRealWs.length > 0 ? allRealWs.reduce((a,b)=>a+b,0) / simCount : 0,
+                                // 以下三者皆為「存活者視角」：在順利走完全程的前提下
+                                avgRealWithdrawn: survCount > 0 ? survRealWs.reduce((a,b)=>a+b,0) / survCount : 0,
+                                qolRate: totals[strat].survivorYears > 0 ? 100 - (totals[strat].survivorDowngraded / totals[strat].survivorYears) * 100 : 0,
+                                medianCV: survCount > 0 ? cvs[Math.floor(survCount / 2)] : 0
                             };
                         });
 
@@ -730,6 +830,7 @@
                                         <Line yAxisId="left" type="monotone" dataKey="baseline" name="傳統" stroke="#94a3b8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
                                         <Line yAxisId="left" type="monotone" dataKey="vanguard" name="Vanguard" stroke="#0ea5e9" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
                                         <Line yAxisId="left" type="monotone" dataKey="guyton" name="Guyton" stroke="#f59e0b" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
+                                        <Line yAxisId="left" type="monotone" dataKey="riskbased" name="風險護欄" stroke="#8b5cf6" strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} legendType="none" />
                                     </ComposedChart>
                                 </ResponsiveContainer>
                             </div>
@@ -801,18 +902,21 @@
                     baseline: simResults?.stats?.baseline?.successRate || 0,
                     vanguard: simResults?.stats?.vanguard?.successRate || 0,
                     guyton: simResults?.stats?.guyton?.successRate || 0,
+                    riskbased: simResults?.stats?.riskbased?.successRate || 0,
                 },
                 {
                     name: '預期生活品質佔比',
                     baseline: simResults?.stats?.baseline?.qolRate || 0,
                     vanguard: simResults?.stats?.vanguard?.qolRate || 0,
                     guyton: simResults?.stats?.guyton?.qolRate || 0,
+                    riskbased: simResults?.stats?.riskbased?.qolRate || 0,
                 },
                 {
                     name: '提領變異係數(CV)',
                     baseline: simResults?.stats?.baseline?.medianCV || 0,
                     vanguard: simResults?.stats?.vanguard?.medianCV || 0,
                     guyton: simResults?.stats?.guyton?.medianCV || 0,
+                    riskbased: simResults?.stats?.riskbased?.medianCV || 0,
                 }
             ];
 
@@ -1017,28 +1121,51 @@
                                         </div>
 
                                         <div className="overflow-x-auto custom-scroll bg-white">
-                                            <div className="min-w-[800px]">
+                                            <div className="min-w-[940px]">
                                                 <table className="w-full text-xs md:text-sm text-center table-fixed">
+                                                    <colgroup>
+                                                        <col style={{width:'13%'}} />
+                                                        <col style={{width:'15%'}} />
+                                                        <col style={{width:'18%'}} />
+                                                        <col style={{width:'18%'}} />
+                                                        <col style={{width:'16%'}} />
+                                                        <col style={{width:'20%'}} />
+                                                    </colgroup>
                                                     <thead className="font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200">
                                                         <tr>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 align-top">策略</th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-emerald-700 bg-emerald-50/50 align-top">存活率</th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50 align-top">
+                                                            <th rowSpan={2} className="px-2 py-3 border-r border-slate-100 align-middle">策略</th>
+                                                            <th colSpan={2} className="px-2 py-2 border-r border-slate-200 text-emerald-700 bg-emerald-100/60 text-[10px] md:text-xs font-extrabold tracking-wider">全宇宙(含破產路徑)</th>
+                                                            <th colSpan={3} className="px-2 py-2 text-indigo-700 bg-indigo-100/50 text-[10px] md:text-xs font-extrabold tracking-wider">存活者視角 · 順利走完全程</th>
+                                                        </tr>
+                                                        <tr>
+                                                            <th className="px-2 py-3 border-r border-slate-100 text-emerald-700 bg-emerald-50/50 align-top">
+                                                                <div className="flex flex-col items-center gap-0.5">
+                                                                    <span>存活率</span>
+                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-emerald-500/90">撐過全程不破產的機率</span>
+                                                                </div>
+                                                            </th>
+                                                            <th className="px-2 py-3 border-r border-slate-200 text-teal-700 bg-teal-50/50 align-top">
+                                                                <div className="flex flex-col items-center gap-0.5">
+                                                                    <span>全宇宙期望實質提領</span>
+                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-teal-500/90">含破產路徑 · 風險調整後</span>
+                                                                </div>
+                                                            </th>
+                                                            <th className="px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50 align-top">
                                                                 <div className="flex flex-col items-center gap-0.5">
                                                                     <span>預期生活品質佔比</span>
                                                                     <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-blue-400/90">維持或超越首年購買力</span>
                                                                 </div>
                                                             </th>
-                                                            <th className="w-1/5 px-2 py-3 border-r border-slate-100 text-amber-700 bg-amber-50/50 align-top">
+                                                            <th className="px-2 py-3 border-r border-slate-100 text-amber-700 bg-amber-50/50 align-top">
                                                                 <div className="flex flex-col items-center gap-0.5">
                                                                     <span>提領變異係數(CV)</span>
                                                                     <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-amber-500/90">越低越穩,生活費不亂跳</span>
                                                                 </div>
                                                             </th>
-                                                            <th className="w-1/5 px-2 py-3 text-slate-600 bg-slate-100/50 align-top">
+                                                            <th className="px-2 py-3 text-slate-600 bg-slate-100/50 align-top">
                                                                 <div className="flex flex-col items-center gap-0.5">
-                                                                    <span>生涯總提領均值</span>
-                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-slate-400">排除破產路徑的條件平均</span>
+                                                                    <span>生涯總實質提領</span>
+                                                                    <span className="font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-slate-400">今日購買力 · 僅存活者</span>
                                                                 </div>
                                                             </th>
                                                         </tr>
@@ -1055,9 +1182,10 @@
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-2 py-3 md:py-4 font-mono font-bold text-emerald-700 bg-emerald-50/20 border-r border-slate-100">{stat.successRate.toFixed(1)}%</td>
+                                                                    <td className="px-2 py-3 md:py-4 font-mono font-bold text-teal-700 bg-teal-50/20 border-r border-slate-200">{Math.round(stat.avgRealAllUniverse).toLocaleString()} 萬</td>
                                                                     <td className="px-2 py-3 md:py-4 font-mono font-bold text-blue-700 bg-blue-50/20 border-r border-slate-100">{stat.qolRate.toFixed(1)}%</td>
                                                                     <td className="px-2 py-3 md:py-4 font-mono font-bold text-amber-700 bg-amber-50/20 border-r border-slate-100">{stat.medianCV.toFixed(1)}%</td>
-                                                                    <td className="px-2 py-3 md:py-4 font-mono text-slate-700 bg-slate-50/30">{Math.round(stat.avgWithdrawn).toLocaleString()} 萬</td>
+                                                                    <td className="px-2 py-3 md:py-4 font-mono text-slate-700 bg-slate-50/30">{Math.round(stat.avgRealWithdrawn).toLocaleString()} 萬</td>
                                                                 </tr>
                                                             );
                                                         })}
