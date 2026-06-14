@@ -231,6 +231,8 @@
             const [years, setYears] = useState(30);
             const [simCount, setSimCount] = useState(1000);
             const [stressMode, setStressMode] = useState('none'); // 'none' | 'crash' | 'sequence'
+            const [usePlan, setUsePlan] = useState(false);          // 個人退休計畫:生活費下限開關
+            const [spendFloorPct, setSpendFloorPct] = useState(60); // 生活費下限佔初始提領的 %(實質)
 
             const handleStockRatioChange = (newRatio) => {
                 setStockRatio(newRatio);
@@ -488,6 +490,11 @@
                                         const res = logicFn(t, nw, pathW, marketReturns, inflFactors, expectedRealW);
                                         w = res.w;
                                         currentNote = res.note;
+                                        // 個人退休計畫:實質生活費下限(隨通膨保值)。無論策略如何減支都不低於此
+                                        if (usePlan) {
+                                            const floorNominal = expectedRealW * (spendFloorPct / 100);
+                                            if (w < floorNominal) { w = floorNominal; currentNote += ' | 🛡️生活費下限'; }
+                                        }
                                     } else {
                                         w = 0;
                                         currentNote = '資產耗盡';
@@ -680,7 +687,7 @@
                     setIsSimulating(false);
                 }, 50);
                 return () => clearTimeout(timer);
-            }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode]);
+            }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode, usePlan, spendFloorPct]);
 
             const renderChart = () => {
                 if (!simResults) return null;
@@ -1036,6 +1043,19 @@
                                 <div className="grid grid-cols-1 gap-3">
                                     <InputSlider label="退休初始資產" value={initialCapital} setter={setInitialCapital} min={1000} max={20000} step={500} suffix="萬" color="indigo" />
                                     <InputSlider label="初始提領率 (首年)" value={initialWithdrawalRate} setter={setInitialWithdrawalRate} min={2.0} max={8.0} step={0.1} suffix="%" color="indigo" />
+                                </div>
+                                <div className="pt-4 mt-4 border-t border-slate-100">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[11px] md:text-sm font-bold text-indigo-700 flex items-center gap-1"><ShieldCheck size={14}/> 生活費下限(底線)</span>
+                                        <button onClick={() => setUsePlan(!usePlan)} className={`relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${usePlan ? 'bg-indigo-500' : 'bg-slate-300'}`}>
+                                            <span className={`pointer-events-none inline-block h-4 md:h-5 w-4 md:w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${usePlan ? 'translate-x-4 md:translate-x-5' : 'translate-x-0'}`} />
+                                        </button>
+                                    </div>
+                                    <p className="text-[9px] md:text-[10px] text-slate-500 mt-1 mb-3">無論策略如何縮衣節食，都不會低於的<b>實質</b>生活費底線；地板越高 → 生活越有保障、但破產風險也越高。</p>
+                                    {usePlan && (
+                                        <InputSlider label="基本生活費下限" value={spendFloorPct} setter={setSpendFloorPct} min={0} max={100} step={5} suffix="%" color="indigo"
+                                            info={`以「初始提領＝退休金×提領率」為 100% 往下調，並隨通膨保值(實質購買力)。目前約 ${Math.round(initialCapital * (initialWithdrawalRate/100) * (spendFloorPct/100)).toLocaleString()} 萬/年(今日購買力)。100%＝絕不減支(等同固定提領)、0%＝完全放任策略減支。`} />
+                                    )}
                                 </div>
                             </div>
 
