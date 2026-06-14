@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v4.0 - 旗艦版</title>
+    <title>退休動態提領模擬器 v5.0</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -232,7 +232,7 @@
             const [simCount, setSimCount] = useState(1000);
             const [stressMode, setStressMode] = useState('none'); // 'none' | 'crash' | 'sequence'
             const [usePlan, setUsePlan] = useState(false);          // 個人退休計畫:生活費下限開關
-            const [spendFloorPct, setSpendFloorPct] = useState(60); // 生活費下限佔初始提領的 %(實質)
+            const [spendFloorPct, setSpendFloorPct] = useState(80); // 生活費下限佔初始提領的 %(實質)，預設 80%(最多接受降 20%)
 
             const handleStockRatioChange = (newRatio) => {
                 setStockRatio(newRatio);
@@ -255,6 +255,13 @@
             const [simResults, setSimResults] = useState(null);
             const [isSimulating, setIsSimulating] = useState(false);
             const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
+            const [showVersions, setShowVersions] = useState(false);
+            const versionHistory = [
+                { ver: 'v5.0', changes: ['生活費下限預設改為 80%', '新增版本紀錄(作者下方可展開)'] },
+                { ver: 'v4.2', changes: ['壓力測試改為三段式：關閉／崩盤情境／純順序風險(報酬中性重排，只改順序、報酬與波動不變)', '新增「個人退休計畫：生活費下限」(實質保底，無論策略如何減支都不破線)'] },
+                { ver: 'v4.1', changes: ['結算指標精簡為三欄：存活率(＋期望存活年)／生活品質佔比(＋降級時平均)／CV', '趨勢圖 x 軸固定、預設改為「提領」檢視；報告卡移至趨勢圖上方'] },
+                { ver: 'v4.0', changes: ['四策略定版：傳統4%／Vanguard動態／Guyton-Klinger／Yale平滑(Tobin 80/20)', '新增「比較模型」勾選；「退休時股票比例」自動連動報酬與波動'] },
+            ];
 
             useEffect(() => {
                 setIsSimulating(true);
@@ -914,7 +921,7 @@
                         <div>
                             <h1 className="text-xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2 md:gap-3">
                                 <Activity className="w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0" />
-                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v4.0 旗艦版</span></span>
+                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v5.0</span></span>
                             </h1>
                             <p className="text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep">
                                 結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。<span className="md:hidden text-indigo-400">(建議橫向瀏覽)</span>
@@ -1253,6 +1260,23 @@
                                 <a href="https://www.facebook.com/search/top?q=指數三寶飯" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[10px] text-slate-300 hover:text-slate-500 transition-colors group">
                                     <span>Designed by</span><span className="font-bold underline decoration-slate-200 underline-offset-2 group-hover:decoration-slate-400">fb/指數三寶飯</span><ExternalLink size={10} className="opacity-60 group-hover:opacity-100" />
                                 </a>
+                                <div className="mt-2">
+                                    <button onClick={() => setShowVersions(v => !v)} className="text-[10px] text-slate-300 hover:text-slate-500 transition-colors inline-flex items-center gap-1">
+                                        版本紀錄 <span className={`inline-block transition-transform duration-200 ${showVersions ? 'rotate-180' : ''}`}>▾</span>
+                                    </button>
+                                    {showVersions && (
+                                        <div className="mt-2 mx-auto max-w-md text-left bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2 animate-in fade-in duration-200">
+                                            {versionHistory.map(v => (
+                                                <div key={v.ver} className="text-[10px] leading-relaxed">
+                                                    <span className="font-bold text-slate-600">{v.ver}</span>
+                                                    <ul className="list-disc list-inside text-slate-500 mt-0.5 space-y-0.5">
+                                                        {v.changes.map((c, i) => <li key={i}>{c}</li>)}
+                                                    </ul>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
