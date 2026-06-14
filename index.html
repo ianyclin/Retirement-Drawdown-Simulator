@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v5.0</title>
+    <title>退休動態提領模擬器 v4.0 - 旗艦版</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -230,7 +230,7 @@
             const [inflation, setInflation] = useState(3.0); 
             const [years, setYears] = useState(30);
             const [simCount, setSimCount] = useState(1000);
-            const [sorrTest, setSorrTest] = useState(false);
+            const [stressMode, setStressMode] = useState('none'); // 'none' | 'crash' | 'sequence'
 
             const handleStockRatioChange = (newRatio) => {
                 setStockRatio(newRatio);
@@ -283,7 +283,7 @@
                                 const Z = randn_bm();
                                 let r = (cagr / 100) + (volatility / 100) * Z;
                                 
-                                if (sorrTest && t < 3) { r = -0.15; }
+                                if (stressMode === 'crash' && t < 3) { r = -0.15; }
 
                                 marketReturns.push(r);
                                 pathMarketReturn *= (1 + r);
@@ -439,13 +439,20 @@
                             const inflFactors = []; 
                             let currentInflFactor = 1;
                             let pathMarketReturn = 1; 
-                            
+
+                            // 先抽出整條路徑的報酬
+                            const rawReturns = [];
                             for (let t = 0; t < years; t++) {
                                 const Z = randn_bm();
                                 let r = (cagr / 100) + (volatility / 100) * Z;
-                                
-                                if (sorrTest && t < 3) { r = -0.15; }
+                                if (stressMode === 'crash' && t < 3) { r = -0.15; } // 崩盤情境：前三年釘 -15%(會壓低一生總報酬)
+                                rawReturns.push(r);
+                            }
+                            // 純順序風險：同一組報酬由低到高重排(最差年份前置)，平均/波動/總報酬完全不變，只改先後順序
+                            if (stressMode === 'sequence') { rawReturns.sort((a, b) => a - b); }
 
+                            for (let t = 0; t < years; t++) {
+                                const r = rawReturns[t];
                                 marketReturns.push(r);
                                 pathMarketReturn *= (1 + r);
                                 
@@ -673,7 +680,7 @@
                     setIsSimulating(false);
                 }, 50);
                 return () => clearTimeout(timer);
-            }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, sorrTest]);
+            }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode]);
 
             const renderChart = () => {
                 if (!simResults) return null;
@@ -900,7 +907,7 @@
                         <div>
                             <h1 className="text-xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2 md:gap-3">
                                 <Activity className="w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0" />
-                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v5.0</span></span>
+                                <span>退休動態提領模擬器 <span className="text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle">v4.0 旗艦版</span></span>
                             </h1>
                             <p className="text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep">
                                 結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。<span className="md:hidden text-indigo-400">(建議橫向瀏覽)</span>
@@ -1000,14 +1007,25 @@
                                     <InputSlider label="模擬年限" value={years} setter={setYears} min={10} max={50} step={5} suffix="年" />
                                 </div>
 
-                                <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                                    <div className="flex flex-col">
+                                <div className="pt-4 border-t border-slate-100">
+                                    <div className="flex flex-col mb-2">
                                         <span className="text-[11px] md:text-sm font-bold text-rose-600 flex items-center gap-1"><TrendingUp size={14} className="rotate-180"/> 壓力測試：報酬順序風險</span>
-                                        <span className="text-[9px] md:text-[10px] text-slate-500 mt-0.5">強制前三年大跌 (-15%)，測試防禦力</span>
+                                        <span className="text-[9px] md:text-[10px] text-slate-500 mt-0.5">測試「壞報酬發生在退休早年」的殺傷力</span>
                                     </div>
-                                    <button onClick={() => setSorrTest(!sorrTest)} className={`relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${sorrTest ? 'bg-rose-500' : 'bg-slate-300'}`}>
-                                        <span className={`pointer-events-none inline-block h-4 md:h-5 w-4 md:w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${sorrTest ? 'translate-x-4 md:translate-x-5' : 'translate-x-0'}`} />
-                                    </button>
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                        {[
+                                            { id: 'none', label: '關閉', desc: '正常隨機' },
+                                            { id: 'crash', label: '崩盤情境', desc: '前三年 -15%' },
+                                            { id: 'sequence', label: '純順序風險', desc: '最差年份前置' }
+                                        ].map(m => (
+                                            <button key={m.id} onClick={() => setStressMode(m.id)}
+                                                className={`flex flex-col items-center justify-center px-1 py-2 rounded-lg border text-center transition-all ${stressMode === m.id ? 'border-rose-400 bg-rose-50 shadow-sm' : 'border-slate-200 bg-white opacity-60 hover:opacity-100'}`}>
+                                                <span className={`text-[11px] font-bold ${stressMode === m.id ? 'text-rose-600' : 'text-slate-600'}`}>{m.label}</span>
+                                                <span className="text-[9px] text-slate-400 leading-tight mt-0.5">{m.desc}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">崩盤情境=同時壓低一生總報酬的衝擊；<br/>純順序風險=保持報酬/波動/總報酬不變、只把壞年份排到最前,單獨隔離「順序」效果。</p>
                                 </div>
                             </div>
 
