@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v5.5</title>
+    <title>退休動態提領模擬器 v6.4</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- UMD 全域版本：靜態主機(GitHub Pages)更穩，不依賴 importmap 與 ESM module -->
+    <!-- UMD 全域版本：靜態主機（GitHub Pages）更穩，不依賴 importmap 與 ESM module -->
 
     <style>
         body { font-family: "Inter", "Noto Sans TC", sans-serif; background-color: #f8fafc; }
@@ -356,6 +356,7 @@ window.react=window.React;window.reactDom=window.ReactDOM;
 const {
   useState,
   useEffect,
+  useRef,
   memo
 } = React;
 const {
@@ -378,7 +379,7 @@ const {
   ErrorBar,
   Cell
 } = Recharts;
-// lucide-react 全域(UMD)；若載入失敗則該圖示安全渲染為 null，不會讓整頁白屏
+// lucide-react 全域（UMD）；若載入失敗則該圖示安全渲染為 null，不會讓整頁白屏
 const _L = window.LucideReact || window.lucideReact || {};
 const _ic = n => _L[n] || (() => null);
 const Settings = _ic('Settings'),
@@ -394,11 +395,10 @@ const Settings = _ic('Settings'),
   ExternalLink = _ic('ExternalLink'),
   HelpCircle = _ic('HelpCircle'),
   PieChart = _ic('PieChart'),
-  Play = _ic('Play'),
-  Shuffle = _ic('Shuffle');
+  Play = _ic('Play');
 
 // --- Math & Simulation Engine ---
-// 可重現亂數(mulberry32):用 simSeed 設種子。同種子→同一組市場路徑(切微笑開/關或調參數可乾淨對照);按「重新模擬」換一組
+// 可重現亂數（mulberry32）：用 simSeed 設種子。同種子→同一組市場路徑（切微笑開/關或調參數可乾淨對照）;按「重新模擬」換一組
 let _rngState = 0x9e3779b9;
 const seedRng = s => {
   _rngState = (s >>> 0 || 0x9e3779b9) | 0;
@@ -410,8 +410,8 @@ const nextRandom = () => {
   return ((t ^ t >>> 14) >>> 0) / 4294967296;
 };
 // 退休支出微笑曲線(Blanchett 2014「Exploring the Retirement Consumption Puzzle」J. Financial Planning 27(5):34–42 / J.P. Morgan《Retirement by the Numbers》2025)
-// 依「年齡」。SMILE_FRAC = 各年齡的「下滑進度」(0=未降、1=谷底);實際乘數 = 1 − 進度 × 深度。
-// 深度 depth:0.26 = Blanchett(到84歲谷底 $74,146/$100k ≈ −26%);0.30 = J.P. Morgan(60→85歲實質約 −30%)。65歲前持平、約84歲谷底、之後因醫療微升。
+// 依「年齡」。SMILE_FRAC = 各年齡的「下滑進度」（0=未降、1=谷底）;實際乘數 = 1 − 進度 × 深度。
+// 深度 depth:0.26 = Blanchett(到84歲谷底 $74,146/$100k ≈ −26%);0.30 = J.P. Morgan（60→85歲實質約 −30%）。65歲前持平、約84歲谷底、之後因醫療微升。
 const SMILE_FRAC = [[60, 0], [65, 0], [70, 0.192], [75, 0.462], [80, 0.769], [84, 1.0], [88, 1.0], [92, 0.923], [96, 0.808], [100, 0.692]];
 const smileFrac = age => {
   const p = SMILE_FRAC;
@@ -425,7 +425,7 @@ const smileFrac = age => {
   return 0;
 };
 const smileLevel = (age, depth) => 1 - smileFrac(age) * depth;
-// 正規化:退休年齡那年=1.0(第一年提領＝你設定的金額);封頂 ≤ 1(老年不會比初始高)
+// 正規化：退休年齡那年=1.0(第一年提領＝你設定的金額);封頂 ≤ 1(老年不會比初始高)
 const smileFactor = (age, retAge, depth) => {
   const base = smileLevel(retAge, depth);
   return base > 0 ? Math.min(1.0, smileLevel(age, depth) / base) : 1.0;
@@ -437,6 +437,179 @@ const randn_bm = () => {
   while (v === 0) v = nextRandom();
   return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 };
+
+// 內政部 113 年（2024）全國簡易生命表：各年齡平均餘命 e°ₓ（年）。鍵=年齡，值=平均餘命。
+const LIFE_EXP = {
+  all: {
+    35: 46.85,
+    36: 45.89,
+    37: 44.93,
+    38: 43.98,
+    39: 43.03,
+    40: 42.08,
+    41: 41.14,
+    42: 40.21,
+    43: 39.28,
+    44: 38.36,
+    45: 37.44,
+    46: 36.53,
+    47: 35.63,
+    48: 34.73,
+    49: 33.84,
+    50: 32.95,
+    51: 32.07,
+    52: 31.20,
+    53: 30.33,
+    54: 29.47,
+    55: 28.62,
+    56: 27.77,
+    57: 26.93,
+    58: 26.09,
+    59: 25.26,
+    60: 24.44,
+    61: 23.62,
+    62: 22.81,
+    63: 22.00,
+    64: 21.20,
+    65: 20.41,
+    66: 19.62,
+    67: 18.84,
+    68: 18.07,
+    69: 17.31,
+    70: 16.56,
+    71: 15.82,
+    72: 15.10,
+    73: 14.38,
+    74: 13.68,
+    75: 13.00,
+    76: 12.32,
+    77: 11.66,
+    78: 11.00,
+    79: 10.36,
+    80: 9.72,
+    81: 9.09,
+    82: 8.47,
+    83: 7.86,
+    84: 7.25,
+    85: 6.64
+  },
+  male: {
+    35: 43.66,
+    36: 42.71,
+    37: 41.76,
+    38: 40.82,
+    39: 39.88,
+    40: 38.96,
+    41: 38.03,
+    42: 37.12,
+    43: 36.21,
+    44: 35.32,
+    45: 34.43,
+    46: 33.55,
+    47: 32.68,
+    48: 31.81,
+    49: 30.96,
+    50: 30.11,
+    51: 29.27,
+    52: 28.44,
+    53: 27.61,
+    54: 26.80,
+    55: 25.99,
+    56: 25.19,
+    57: 24.40,
+    58: 23.62,
+    59: 22.85,
+    60: 22.08,
+    61: 21.32,
+    62: 20.57,
+    63: 19.82,
+    64: 19.08,
+    65: 18.35,
+    66: 17.62,
+    67: 16.91,
+    68: 16.20,
+    69: 15.50,
+    70: 14.81,
+    71: 14.14,
+    72: 13.48,
+    73: 12.83,
+    74: 12.19,
+    75: 11.57,
+    76: 10.95,
+    77: 10.35,
+    78: 9.75,
+    79: 9.16,
+    80: 8.58,
+    81: 8.00,
+    82: 7.43,
+    83: 6.85,
+    84: 6.28,
+    85: 5.70
+  },
+  female: {
+    35: 50.17,
+    36: 49.20,
+    37: 48.23,
+    38: 47.26,
+    39: 46.29,
+    40: 45.33,
+    41: 44.37,
+    42: 43.41,
+    43: 42.46,
+    44: 41.51,
+    45: 40.56,
+    46: 39.62,
+    47: 38.67,
+    48: 37.74,
+    49: 36.80,
+    50: 35.87,
+    51: 34.95,
+    52: 34.03,
+    53: 33.11,
+    54: 32.20,
+    55: 31.29,
+    56: 30.38,
+    57: 29.47,
+    58: 28.57,
+    59: 27.68,
+    60: 26.79,
+    61: 25.90,
+    62: 25.02,
+    63: 24.14,
+    64: 23.27,
+    65: 22.41,
+    66: 21.55,
+    67: 20.69,
+    68: 19.85,
+    69: 19.02,
+    70: 18.20,
+    71: 17.38,
+    72: 16.59,
+    73: 15.80,
+    74: 15.03,
+    75: 14.27,
+    76: 13.53,
+    77: 12.80,
+    78: 12.08,
+    79: 11.37,
+    80: 10.68,
+    81: 10.00,
+    82: 9.34,
+    83: 8.68,
+    84: 8.03,
+    85: 7.40
+  }
+};
+const GENDER_LABEL = {
+  all: '全體',
+  male: '男性',
+  female: '女性'
+};
+const lifeExpectancy = (age, g) => {
+  const tbl = LIFE_EXP[g] || LIFE_EXP.all;
+  const a = Math.max(35, Math.min(85, Math.round(age)));
+  return tbl[a];
+};
 const strategiesDef = [{
   id: 'baseline',
   name: '傳統 4% 法則',
@@ -445,7 +618,7 @@ const strategiesDef = [{
     size: 16
   }),
   desc: '無論市場漲跌，每年提取首年金額並跟隨通膨調升。生活費最穩，但在大跌時極易耗盡本金。',
-  calcSteps: ['首年提領 = 初始資產 × 初始提領率', '次年提領 = 前一年提領額 × (1 + 當年通膨率)', '無視當下資產餘額，強行提領直至歸零']
+  calcSteps: ['首年提領＝初始資產×初始提領率', '次年提領＝前一年提領額×（1＋當年通膨率）', '無視當下資產餘額，強行提領直至歸零']
 }, {
   id: 'vanguard',
   name: 'Vanguard 動態護欄',
@@ -454,7 +627,7 @@ const strategiesDef = [{
     size: 16
   }),
   desc: '提領當下資產的固定比例，但設有變動「天花板」與「地板」，上下限基準為【前一年的實際提領額】。',
-  calcSteps: ['預期提領 = 當下資產餘額 × 初始提領率', '設定上限 = 前一年實領金額 × (1 + 上限參數%)', '設定下限 = 前一年實領金額 × (1 - 下限參數%)', '最終提領 = 將預期提領限制於【下限, 上限】區間']
+  calcSteps: ['預期提領＝當下資產餘額×初始提領率', '設定上限＝前一年實領金額×（1＋上限參數%）', '設定下限＝前一年實領金額×（1－下限參數%）', '最終提領＝將預期提領限制於【下限，上限】區間']
 }, {
   id: 'guyton',
   name: 'Guyton-Klinger',
@@ -462,8 +635,8 @@ const strategiesDef = [{
   icon: /*#__PURE__*/React.createElement(TrendingUp, {
     size: 16
   }),
-  desc: '修正版提領法則：前一年負報酬「且」調升後提領率仍高於初始率時才凍結通膨；提領率衝破上護欄則保本減薪(末15年停用)，跌破下護欄則繁榮加薪。護欄只看提領率相對初始率的位置，與報酬正負脫鉤。',
-  calcSteps: ['候選提領 = 去年提領 × (1 + 通膨率)', '修正WR：僅當「去年負報酬」且「調升後提領率 > 初始提領率」才凍結(維持去年金額，不補)', '當前提領率 = 候選提領 ÷ 當下資產餘額', '[保本CPR] 提領率 > 初始率×(1+保本閥值) 且 剩餘年數 > 15：提領削減 X%', '[繁榮PR] 提領率 < 初始率×(1−繁榮閥值)：提領增加 Y%(不受末15年限制)']
+  desc: '修正版提領法則：前一年負報酬「且」調升後提領率仍高於初始率時才凍結通膨；提領率衝破上護欄則保本減薪（末15年停用），跌破下護欄則繁榮加薪。護欄只看提領率相對初始率的位置，與報酬正負脫鉤。',
+  calcSteps: ['候選提領＝去年提領×（1＋通膨率）', '修正WR：僅當「去年負報酬」且「調升後提領率＞初始提領率」才凍結（維持去年金額，不補）', '當前提領率＝候選提領÷當下資產餘額', '【保本CPR】 提領率＞初始率×（1＋保本閥值）且剩餘年數＞15：提領削減 X%', '【繁榮PR】 提領率＜初始率×（1－繁榮閥值）：提領增加 Y%（不受末15年限制）']
 }, {
   id: 'endowment',
   name: 'Yale 平滑法',
@@ -471,8 +644,8 @@ const strategiesDef = [{
   icon: /*#__PURE__*/React.createElement(Scale, {
     size: 16
   }),
-  desc: '耶魯校務基金的 Tobin(1974)平滑規則：當年提領 = 權重 ×(去年提領×通膨)＋(1−權重)×(當下資產×目標提領率)，耶魯預設權重 80%。介於「固定金額(對市場無感)」與「純百分比(大起大落)」之間，緩慢適應市場但不劇烈跳動。權重可在左側調整：100%≈退化成固定金額(4%法則)、0%≈退化成純百分比提領。',
-  calcSteps: ['錨點 = 去年提領 × (1 + 通膨率)　(維持去年生活水準)', '目標 = 當下資產 × 初始提領率', '當年提領 = 權重 × 錨點 + (1−權重) × 目標', '預設 80/20(Tobin/耶魯)；權重可調，兩端會退化成固定金額或純百分比']
+  desc: '耶魯校務基金的 Tobin（1974）平滑規則：當年提領＝權重×（去年提領×通膨）＋（1－權重）×（當下資產×目標提領率），耶魯預設權重 80%。介於「固定金額（對市場無感）」與「純百分比（大起大落）」之間，緩慢適應市場但不劇烈跳動。權重可在左側調整：100%＝固定金額（4%法則）、0%＝純百分比提領。',
+  calcSteps: ['錨點＝去年提領×（1＋通膨率）　（維持去年生活水準）', '目標＝當下資產×初始提領率', '當年提領＝權重×錨點＋（1－權重）×目標', '預設 80/20（Tobin/耶魯）；權重可調，兩端會退化成固定金額或純百分比']
 }];
 
 // --- 股債配置連動模型 ---
@@ -493,6 +666,46 @@ const getAssetAllocationParams = stockRatio => {
 };
 
 // --- UI Components ---
+// 點擊展開的說明浮層：取代 hover（手機可用;內部連結也點得到）。點 ? 開、點外面或再點一次關。
+const InfoPopover = memo(({
+  children,
+  w = 'w-56',
+  align = 'left',
+  iconClass = 'text-slate-400',
+  size = 13
+}) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const closeIfOutside = e => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', closeIfOutside);
+    document.addEventListener('touchstart', closeIfOutside);
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside);
+      document.removeEventListener('touchstart', closeIfOutside);
+    };
+  }, [open]);
+  return /*#__PURE__*/React.createElement("span", {
+    ref: ref,
+    className: "relative inline-flex items-center align-middle"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    "aria-label": "\u8AAA\u660E",
+    onClick: e => {
+      e.stopPropagation();
+      e.preventDefault();
+      setOpen(o => !o);
+    },
+    className: `inline-flex items-center justify-center cursor-pointer ${iconClass} hover:opacity-70`
+  }, /*#__PURE__*/React.createElement(HelpCircle, {
+    size: size
+  })), open && /*#__PURE__*/React.createElement("div", {
+    className: `absolute top-full mt-1 ${align === 'right' ? 'right-0' : align === 'center' ? 'left-1/2 -translate-x-1/2' : 'left-0'} ${w} p-2.5 bg-slate-800 text-white text-[10px] font-normal rounded-lg shadow-xl z-50 whitespace-normal break-words leading-relaxed text-left normal-case tracking-normal`
+  }, children));
+});
 const InputSlider = memo(({
   label,
   value,
@@ -527,16 +740,9 @@ const InputSlider = memo(({
     className: "flex justify-between items-center gap-1 mb-3"
   }, /*#__PURE__*/React.createElement("label", {
     className: "text-xs font-bold text-slate-700 flex items-center gap-1 whitespace-nowrap tracking-tight"
-  }, label, info && /*#__PURE__*/React.createElement("div", {
-    className: "relative flex items-center"
-  }, /*#__PURE__*/React.createElement(HelpCircle, {
-    size: 13,
-    className: "text-slate-400 cursor-help"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal"
-  }, info, /*#__PURE__*/React.createElement("div", {
-    className: "absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"
-  })))), /*#__PURE__*/React.createElement("div", {
+  }, label, info && /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-48"
+  }, info)), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center bg-white rounded border border-slate-300 shadow-sm px-1.5 py-0.5 shrink-0 min-w-0"
   }, /*#__PURE__*/React.createElement("input", {
     type: "number",
@@ -614,19 +820,20 @@ const App = () => {
   const [initialWithdrawalRate, setInitialWithdrawalRate] = useState(4.0);
 
   // 預設為 80% 股債比
-  const [stockRatio, setStockRatio] = useState(60); // 退休時股票比例(預設 60%)
+  const [stockRatio, setStockRatio] = useState(60); // 退休時股票比例（預設 60%）
 
   const [cagr, setCagr] = useState(7.6);
   const [volatility, setVolatility] = useState(11.2);
   const [inflation, setInflation] = useState(3.0);
   const [years, setYears] = useState(30);
-  const [retireAge, setRetireAge] = useState(65); // 預計退休年齡:供餘命提醒，且微笑曲線開啟時作為年齡基準進入引擎
-  const [simCount, setSimCount] = useState(1000);
+  const [retireAge, setRetireAge] = useState(65); // 預計退休年齡：供餘命提醒，且微笑曲線開啟時作為年齡基準進入引擎
+  const [gender, setGender] = useState('all'); // 性別：供平均餘命提醒查表（全體／男／女），不影響模擬引擎
+  const [simCount] = useState(10000); // 固定每次模擬 10,000 條人生（已移除可調選項）
   const [stressMode, setStressMode] = useState('none'); // 'none' | 'crash' | 'sequence'
-  const [usePlan, setUsePlan] = useState(false); // 個人退休計畫:生活費下限開關
-  const [useSmile, setUseSmile] = useState(false); // 退休支出微笑曲線開關(依年齡彎曲目標線)
-  const [smileDepth, setSmileDepth] = useState(0.26); // 微笑下滑深度:0.26 Blanchett / 0.30 J.P. Morgan
-  const [spendFloorPct, setSpendFloorPct] = useState(70); // 生活費下限佔初始提領的 %(實質)，預設 70%(低於微笑谷底 ~74%，不致一開始就削掉微笑)
+  const [usePlan, setUsePlan] = useState(false); // 個人退休計畫：生活費下限開關
+  const [useSmile, setUseSmile] = useState(false); // 退休支出微笑曲線開關（依年齡彎曲目標線）
+  const [smileDepth, setSmileDepth] = useState(0.26); // 微笑下滑深度：0.26 Blanchett / 0.30 J.P. Morgan
+  const [spendFloorPct, setSpendFloorPct] = useState(70); // 生活費下限佔初始提領的 %（實質），預設 70%(低於微笑谷底 ~74%，不致一開始就削掉微笑)
 
   const handleStockRatioChange = newRatio => {
     setStockRatio(newRatio);
@@ -640,7 +847,7 @@ const App = () => {
   const [gkCapPreserveCut, setGkCapPreserveCut] = useState(10);
   const [gkProsperityThresh, setGkProsperityThresh] = useState(20);
   const [gkProsperityHike, setGkProsperityHike] = useState(10);
-  const [yaleWeight, setYaleWeight] = useState(80); // Yale 平滑:錨定去年支出的權重(%)，Tobin/耶魯預設 80
+  const [yaleWeight, setYaleWeight] = useState(80); // Yale 平滑：錨定去年支出的權重（%），Tobin/耶魯預設 80
   const [selectedModels, setSelectedModels] = useState(['baseline', 'vanguard', 'guyton', 'endowment']);
   const [viewMode, setViewMode] = useState('withdrawal');
   const [auditChartMode, setAuditChartMode] = useState('netWorth');
@@ -649,44 +856,63 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [{
+    ver: 'v6.4',
+    changes: ['版本紀錄（本區）的標點與符號也一併全形化，與全站一致：括號（）、冒號：、分號；、斜線／、等號＝、減號－、≧；數字／英文／版號維持半形']
+  }, {
+    ver: 'v6.3',
+    changes: ['全站說明文字的運算與比較符號統一為全形（＝ ＋ － ＞ ＜ ≧，乘除維持標準 × ÷），前後不再留半形空白，與全形括號（）、冒號：一致；數字、百分比、單位維持半形', '方括號標籤【保本CPR】【繁榮PR】改全形，與【下限，上限】一致']
+  }, {
+    ver: 'v6.2',
+    changes: ['Yale 平滑兩端說明的「≈」改為「＝」（100%／0% 確實等同固定金額／純百分比，非近似）', '「深度稽核」面板加高（800→1000px），逐年表格一次可看到更多年份', '桌機版左側參數恢復為可獨立捲動的固定欄（加上 overscroll-contain，消除捲到底時的卡頓）：先把右側結果捲到想觀察的圖表，再調整左側參數即可即時對照；手機版維持整頁堆疊捲動', '「比較模型」浮層用字校正：計算原理在上方「展開策略計算原理」與結果區「深度稽核」分頁']
+  }, {
+    ver: 'v6.1',
+    changes: ['「個人退休計畫」2×2 排版修正跑位：標籤精簡為「初始資產／首年提領率／退休年齡」，性別欄改為與滑桿一致的式樣', '「緩衝充足」門檻補上依據：規劃終齡≧平均餘命終齡＋8 年，約對應業界「規劃到 90–95 歲」的穩健建議（FPA Journal、The American College），完整說明在「退休年齡」ⓘ 浮層']
+  }, {
+    ver: 'v6.0',
+    changes: ['新增「性別」設定與內政部 113 年（2024）平均餘命表：調整退休年齡／性別時，即時顯示該年齡平均餘命與規劃緩衝', '「個人退休計畫」參數改為 2×2 排列（退休初始資產｜初始提領率　／　性別｜預計退休年齡）', '「台灣平均餘命提醒」詳細說明移入「預計退休年齡」ⓘ 浮層，旁只留一行結論；「緩衝充足」改以「規劃終齡≧平均終齡＋8 年」判定（隨年齡與性別自動調整）', '「比較模型」加 ⓘ 浮層，指引至上方「深度稽核」查看各策略計算原理', '修正左側參數欄捲動到底時的卡頓（移除獨立捲動區，改為隨整頁捲動）', '「深度稽核」各策略公式（含 Yale 平滑法）括號改為全形']
+  }, {
+    ver: 'v5.9',
+    changes: ['完成全檔中文敘述括號全形化（程式碼、CSS 與數學公式分組括號維持半形）']
+  }, {
+    ver: 'v5.8',
+    changes: ['固定每次模擬 10,000 次（移除次數選項）；「重新模擬」鈕改為「重新模擬一萬次」、操作說明收進 ⓘ 浮層', '預計退休年齡可從 35 歲起（35–75）', '期末累積資產說明移入 ⓘ 浮層，並移除易誤會的「1×／低於 1×」描述（倍數為實質、非名目，故不宜以「動用本金」表述）', '圖例「鬍鬚」正名為「鬚線（whisker）」；微笑曲線旁註與浮層去重（旁註留模型效果、實證與出處收進浮層）', '中文敘述統一改用全形括號（）']
+  }, {
+    ver: 'v5.7',
+    changes: ['所有 （?） 說明從「滑鼠移過」改為「點擊展開」浮層（手機觸控也能用；裡面的出處連結也點得到）：涵蓋滑桿說明、市場中位宇宙、微笑曲線、生活品質佔比', '微笑曲線說明精簡為兩層：旁邊一句「做什麼＋效果」，深度研究與出處連結收進 （?） 浮層']
+  }, {
+    ver: 'v5.6',
+    changes: ['模擬改回「參數即時更新」：調任何參數會立即重算結果，且沿用同一組市場路徑（同種子）→ 看到的是該參數的「純效果」、無隨機雜訊（內建 50ms 防抖，拖滑桿不卡）', '「重新模擬」改為「重抽一組全新隨機路徑」再跑 N 次，用來檢視結果在不同運氣下的穩定度', '移除 v5.5 的「手動套用」與「參數已變更」狀態（已由即時更新取代）']
+  }, {
     ver: 'v5.5',
-    changes: ['新增「模擬控制」面板(置於最上方):改為手動觸發——調整參數只更新畫面、按「重新模擬」才重跑;含「參數已變更/結果為最新」狀態提示', '「重新模擬」沿用同一組市場路徑(乾淨對照);另設「換一組市場路徑」鈕重抽亂數', '模擬次數可調(1k/2k/5k/10k);次數越多存活率與百分位越穩定']
+    changes: ['新增「模擬控制」面板（置於最上方）與「模擬次數」可調（1k／2k／5k／10k）', '（註：v5.5 的手動觸發模式已於 v5.6 改為即時更新）']
   }, {
     ver: 'v5.4',
-    changes: ['亂數改可重現種子(mulberry32)：同種子→同一組市場路徑，切換微笑開/關或調參數可乾淨對照；按「重新模擬」換一組', '微笑下滑深度錨點可切換 −26%(Blanchett) / −30%(J.P. Morgan)，並附原始研究連結', '修正:微笑曲線原本只改計分、未實際作用於提領(策略改餵未彎基準歷史→實際消費=基準×年齡乘數，避免重複累乘)']
+    changes: ['亂數改可重現種子（mulberry32）：同種子→同一組市場路徑，切換微笑開／關或調參數可乾淨對照；按「重新模擬」換一組', '微笑下滑深度錨點可切換 －26%（Blanchett）／－30%（J.P. Morgan），並附原始研究連結', '修正：微笑曲線原本只改計分、未實際作用於提領（策略改餵未彎基準歷史→實際消費＝基準×年齡乘數，避免重複累乘）']
   }, {
     ver: 'v5.3',
-    changes: ['新增「退休支出微笑曲線」開關(Blanchett 2014／J.P. Morgan 2025;目標支出依年齡下彎，約 84 歲谷底 −26%、之後微升)，含 reference 說明', '微笑僅改「目標線」一處→存活率自然上升、生活品質改以微笑線衡量、生活費下限維持水平', '提領圖可疊「微笑目標線」', '期末資產改用 P10–P90 可能範圍(取代標準差)，柱上加不對稱鬍鬚', '生活費下限預設改為 70%']
+    changes: ['新增「退休支出微笑曲線」開關（Blanchett 2014／J.P. Morgan 2025；目標支出依年齡下彎，約 84 歲谷底 －26%、之後微升），含 reference 說明', '微笑僅改「目標線」一處→存活率自然上升、生活品質改以微笑線衡量、生活費下限維持水平', '提領圖可疊「微笑目標線」', '期末資產改用 P10–P90 可能範圍（取代標準差），柱上加不對稱鬍鬚', '生活費下限預設改為 70%']
   }, {
     ver: 'v5.2',
-    changes: ['新增「預計退休年齡」輸入', '新增「台灣平均餘命提醒」(內政部 2024，提醒規劃年限涵蓋到 90–95 歲以防長壽風險)', '新增「期末累積資產(初始的幾倍 ± 標準差)」直條圖與表格']
+    changes: ['新增「預計退休年齡」輸入', '新增「台灣平均餘命提醒」（內政部 2024，提醒規劃年限涵蓋到 90–95 歲以防長壽風險）', '新增「期末累積資產（初始的幾倍 ± 標準差）」直條圖與表格']
   }, {
     ver: 'v5.1',
-    changes: ['改用 UMD 全域載入(移除 importmap/ESM)，修正靜態主機(GitHub Pages)偶發白畫面', '圖示若載入失敗會安全降級為空白，不再整頁白屏']
+    changes: ['改用 UMD 全域載入（移除 importmap／ESM），修正靜態主機（GitHub Pages）偶發白畫面', '圖示若載入失敗會安全降級為空白，不再整頁白屏']
   }, {
     ver: 'v5.0',
-    changes: ['生活費下限預設改為 80%', '新增版本紀錄(作者下方可展開)']
+    changes: ['生活費下限預設改為 80%', '新增版本紀錄（作者下方可展開）']
   }, {
     ver: 'v4.2',
-    changes: ['壓力測試改為三段式：關閉／崩盤情境／純順序風險(報酬中性重排，只改順序、報酬與波動不變)', '新增「個人退休計畫：生活費下限」(實質保底，無論策略如何減支都不破線)']
+    changes: ['壓力測試改為三段式：關閉／崩盤情境／純順序風險（報酬中性重排，只改順序、報酬與波動不變）', '新增「個人退休計畫：生活費下限」（實質保底，無論策略如何減支都不破線）']
   }, {
     ver: 'v4.1',
-    changes: ['結算指標精簡為三欄：存活率(＋期望存活年)／生活品質佔比(＋降級時平均)／CV', '趨勢圖 x 軸固定、預設改為「提領」檢視；報告卡移至趨勢圖上方']
+    changes: ['結算指標精簡為三欄：存活率（＋期望存活年）／生活品質佔比（＋降級時平均）／CV', '趨勢圖 x 軸固定、預設改為「提領」檢視；報告卡移至趨勢圖上方']
   }, {
     ver: 'v4.0',
-    changes: ['四策略定版：傳統4%／Vanguard動態／Guyton-Klinger／Yale平滑(Tobin 80/20)', '新增「比較模型」勾選；「退休時股票比例」自動連動報酬與波動']
+    changes: ['四策略定版：傳統4%／Vanguard動態／Guyton-Klinger／Yale平滑（Tobin 80／20）', '新增「比較模型」勾選；「退休時股票比例」自動連動報酬與波動']
   }];
 
-  // 手動重模擬:模擬只在 runToken 改變時執行;其餘參數改動只更新畫面、不自動重跑(避免拖動滑桿狂算、並利於乾淨對照)
-  const [runToken, setRunToken] = useState(0);
-  const paramSig = JSON.stringify([initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, stressMode, usePlan, spendFloorPct, useSmile, retireAge, smileDepth]);
-  const [committedSig, setCommittedSig] = useState(paramSig);
-  const isDirty = paramSig !== committedSig; // 參數已變更但尚未套用
-  const runSim = (reshuffle = false) => {
-    if (reshuffle) setSimSeed(s => s + 1);
-    setCommittedSig(paramSig);
-    setRunToken(t => t + 1);
-  };
+  // 即時重算：任何參數變更都會重跑（沿用同一組市場路徑 simSeed→看純參數效果，且 setTimeout 50ms 兼具防抖）
+  // 「重新模擬」按鈕 = simSeed+1 → 重抽一組全新隨機市場路徑再跑
   useEffect(() => {
     setIsSimulating(true);
     const timer = setTimeout(() => {
@@ -833,7 +1059,7 @@ const App = () => {
             const minW = prevActualW * (1 - vanFloor / 100);
             const actualW = Math.min(Math.max(expectedW, minW), maxW);
             let note = '比例自然變動';
-            if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限 (限縮)';else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限 (保護)';
+            if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限（限縮）';else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限（保護）';
             return {
               w: actualW,
               note
@@ -886,13 +1112,13 @@ const App = () => {
         // 修正：直接從第一個跑回圈的地方，把所有的 marketReturns 存進 auditData[0...years] 時，
         // 但那是第 0 個 universe。我們需要 P50 universe 的 marketReturn。
         // 我們在上頭跑時，並未保留每個 universe 的逐年報酬率陣列以節省記憶體。
-        // 退而求其次：為了讓 P50 有背景長條圖，我們可以用淨值反推，或者再跑一次 RNG (固定 seed 不行，因為隨機數不同)。
+        // 退而求其次：為了讓 P50 有背景長條圖，我們可以用淨值反推，或者再跑一次 RNG （固定 seed 不行，因為隨機數不同）。
         // 這裡採用一個最準確的解法：直接把 universePerformances 存入 { idx, totalReturn, returns: [] }
       }; // end runSimulation (由於要在原結構加回 returns，我直接在下面這版完整重建)
 
       // 重建 runSimulation 以完美支援背景圖
       const runSimulationWithReturns = () => {
-        seedRng(simSeed); // 可重現:同 simSeed → 同一組亂數路徑;按「重新模擬」會 simSeed+1 換一組
+        seedRng(simSeed); // 可重現：同 simSeed → 同一組亂數路徑;按「重新模擬」會 simSeed+1 換一組
         const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
         const pathsNW = {
           baseline: [],
@@ -950,7 +1176,7 @@ const App = () => {
             } // 崩盤情境：前三年釘 -15%(會壓低一生總報酬)
             rawReturns.push(r);
           }
-          // 純順序風險：同一組報酬由低到高重排(最差年份前置)，平均/波動/總報酬完全不變，只改先後順序
+          // 純順序風險：同一組報酬由低到高重排（最差年份前置），平均/波動/總報酬完全不變，只改先後順序
           if (stressMode === 'sequence') {
             rawReturns.sort((a, b) => a - b);
           }
@@ -983,25 +1209,25 @@ const App = () => {
             let dead = false;
             const pathNW = [];
             const pathW = [];
-            const pathBaseW = []; // 策略「未彎基準」提領歷史:餵給 logicFn 當 prevW，避免微笑被依前一年的策略重複累乘
+            const pathBaseW = []; // 策略「未彎基準」提領歷史：餵給 logicFn 當 prevW，避免微笑被依前一年的策略重複累乘
             const pathRealW = [];
             let totW = 0;
             let pathDowngraded = 0; // 該路徑「未達首年購買力」的年數
-            let ruinYear = 0; // 破產發生的年序(0=未破產)
+            let ruinYear = 0; // 破產發生的年序（0=未破產）
 
             for (let t = 0; t < years; t++) {
               let currentNote = '';
               const expectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t - 1];
-              // 微笑曲線:依年齡彎曲「目標線」(整個模型僅此一處改動);未開啟時 smileT === expectedRealW(水平)
+              // 微笑曲線：依年齡彎曲「目標線」（整個模型僅此一處改動）;未開啟時 smileT === expectedRealW(水平)
               const smileT = useSmile ? expectedRealW * smileFactor(retireAge + t, retireAge, smileDepth) : expectedRealW;
-              let baseW = 0; // 策略在「未彎基準」下決定的提領(餵回 pathBaseW，供依前一年的護欄使用，不含微笑→不累乘)
+              let baseW = 0; // 策略在「未彎基準」下決定的提領（餵回 pathBaseW，供依前一年的護欄使用，不含微笑→不累乘）
               if (!dead) {
                 const res = logicFn(t, nw, pathBaseW, marketReturns, inflFactors, expectedRealW);
                 baseW = res.w;
                 currentNote = res.note;
-                // 微笑曲線:實際消費 = 策略基準 × 年齡乘數(只縮放「實際支出」，省下的留在投組→存活率/期末上升)
+                // 微笑曲線：實際消費 = 策略基準 × 年齡乘數（只縮放「實際支出」，省下的留在投組→存活率/期末上升）
                 w = useSmile ? baseW * smileFactor(retireAge + t, retireAge, smileDepth) : baseW;
-                // 個人退休計畫:實質生活費下限(必需開銷;隨通膨保值)。微笑/策略再省都不低於此底線
+                // 個人退休計畫：實質生活費下限（必需開銷;隨通膨保值）。微笑/策略再省都不低於此底線
                 if (usePlan) {
                   const floorNominal = expectedRealW * (spendFloorPct / 100);
                   if (w < floorNominal) {
@@ -1015,7 +1241,7 @@ const App = () => {
               }
               pathBaseW.push(baseW); // 與 t 對齊;早夭年推 0
 
-              if (w < smileT - 0.1) pathDowngraded++; // 生活品質:對(彎曲後的)微笑線衡量，順著微笑少花不算降級
+              if (w < smileT - 0.1) pathDowngraded++; // 生活品質：對（彎曲後的）微笑線衡量，順著微笑少花不算降級
 
               if (!dead) {
                 nw -= w;
@@ -1041,14 +1267,14 @@ const App = () => {
               }
             }
             const survived = !dead;
-            const realTotal = pathRealW.reduce((a, b) => a + b, 0); // 全程實質提領；破產路徑=斷炊前累積(尾段為0)
+            const realTotal = pathRealW.reduce((a, b) => a + b, 0); // 全程實質提領；破產路徑=斷炊前累積（尾段為0）
             if (!survived) {
               totals[stratId].dead++;
               totals[stratId].ruinYears.push(ruinYear);
             }
             totals[stratId].finalNW.push(nw);
             totals[stratId].totalWithdrawn.push(totW);
-            totals[stratId].allRealWithdrawn.push(realTotal); // 全宇宙:含破產路徑(天生被存活率加權)
+            totals[stratId].allRealWithdrawn.push(realTotal); // 全宇宙：含破產路徑（天生被存活率加權）
             pathsNW[stratId].push(pathNW);
             pathsW[stratId].push(pathW);
 
@@ -1057,11 +1283,11 @@ const App = () => {
             if (survived) {
               totals[stratId].survivorWithdrawn.push(totW); // 名目（保留備用）
               totals[stratId].survivorRealWithdrawn.push(realTotal); // 實質
-              totals[stratId].survivorFinalNW.push(nw); // 期末名目淨值(遺產)
+              totals[stratId].survivorFinalNW.push(nw); // 期末名目淨值（遺產）
               totals[stratId].survivorDowngraded += pathDowngraded;
               totals[stratId].survivorYears += years;
 
-              // 降級「深度」：只在降級年份(實質提領 < 維持首年購買力)計算平均短少 %；該人生若從未降級則不計入
+              // 降級「深度」：只在降級年份（實質提領 < 維持首年購買力）計算平均短少 %；該人生若從未降級則不計入
               let cutSum = 0,
                 cutCount = 0;
               for (let yy = 0; yy < pathRealW.length; yy++) {
@@ -1100,7 +1326,7 @@ const App = () => {
             const minW = prevActualW * (1 - vanFloor / 100);
             const actualW = Math.min(Math.max(expectedW, minW), maxW);
             let note = '比例自然變動';
-            if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限 (限縮)';else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限 (保護)';
+            if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限（限縮）';else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限（保護）';
             return {
               w: actualW,
               note
@@ -1115,29 +1341,29 @@ const App = () => {
             const prevW = histW[t - 1];
             let nextW, note;
 
-            // 規則1+2 修正版提領法則(Modified WR, GK 2006 p.5)＋通膨法則(IR)
-            // 僅在「前一年負報酬」且「調升後提領率仍高於初始率」時凍結；否則照通膨調升(不補)
+            // 規則1+2 修正版提領法則（Modified WR, GK 2006 p.5）＋通膨法則（IR）
+            // 僅在「前一年負報酬」且「調升後提領率仍高於初始率」時凍結；否則照通膨調升（不補）
             const inflatedW = prevW * (1 + inflation / 100);
             const inflatedWR = inflatedW / nw * 100;
             if (prevReturn < 0 && inflatedWR > initialWithdrawalRate) {
               nextW = prevW;
-              note = '❄️凍結通膨(WR)';
+              note = '❄️凍結通膨（WR）';
             } else {
               nextW = inflatedW;
               note = '隨通膨調升';
             }
 
-            // 護欄以「當前提領率 vs 初始提領率」判定，與前一年報酬正負脫鉤(GK 2006 Table 5)
+            // 護欄以「當前提領率 vs 初始提領率」判定，與前一年報酬正負脫鉤（GK 2006 Table 5）
             const wr = nextW / nw * 100;
             const yearsRemaining = years - t; // 含當年在內的剩餘年數
             if (wr > initialWithdrawalRate * (1 + gkCapPreserveThresh / 100) && yearsRemaining > 15) {
-              // 保本法則 CPR：提領率衝破上護欄(初始×1.2)則砍10%；最後15年停用
+              // 保本法則 CPR：提領率衝破上護欄（初始×1.2）則砍10%；最後15年停用
               nextW *= 1 - gkCapPreserveCut / 100;
-              note += ' | 🔴保本刪減(CPR)';
+              note += ' | 🔴保本刪減（CPR）';
             } else if (wr < initialWithdrawalRate * (1 - gkProsperityThresh / 100)) {
-              // 繁榮法則 PR：提領率跌破下護欄(初始×0.8)則加薪10%(不受最後15年限制)
+              // 繁榮法則 PR：提領率跌破下護欄（初始×0.8）則加薪10%(不受最後15年限制)
               nextW *= 1 + gkProsperityHike / 100;
-              note += ' | 🟢繁榮加薪(PR)';
+              note += ' | 🟢繁榮加薪（PR）';
             }
             return {
               w: nextW,
@@ -1198,7 +1424,7 @@ const App = () => {
             wAtT[strat] = pathsW[strat][medianUniverseIdx][t - 1];
           });
 
-          // 微笑目標線(名目，與提領同單位)；通膨為固定率可直接算;未開啟時為 null → 不繪製
+          // 微笑目標線（名目，與提領同單位）；通膨為固定率可直接算;未開啟時為 null → 不繪製
           const t0 = t - 1;
           const inflF = Math.pow(1 + inflation / 100, t0);
           wAtT.smileLine = useSmile ? initialWithdrawal * inflF * smileFactor(retireAge + t0, retireAge, smileDepth) : null;
@@ -1212,20 +1438,20 @@ const App = () => {
           const survCount = survRealWs.length;
           const allRealWs = totals[strat].allRealWithdrawn;
           const ruins = totals[strat].ruinYears;
-          // 期望存活年 = 存活率曲線下的面積 = Σ_t 各年存活比例(t=1..years)
+          // 期望存活年 = 存活率曲線下的面積 = Σ_t 各年存活比例（t=1..years）
           const expectedSurvivalYears = survivals[strat].slice(1).reduce((a, b) => a + b, 0) / simCount;
           const sfn = totals[strat].survivorFinalNW.slice().sort((a, b) => a - b);
           const sf = totals[strat].survivorShortfall.slice().sort((a, b) => a - b);
           const realDeflator = Math.pow(1 + inflation / 100, years); // 期末名目→今日購買力
-          // 期末資產倍數：納入「全部宇宙」(破產路徑期末=0)，避免存活者偏誤；取中位與 P10–P90 可能範圍
+          // 期末資產倍數：納入「全部宇宙」（破產路徑期末=0），避免存活者偏誤；取中位與 P10–P90 可能範圍
           const allFinal = totals[strat].finalNW.slice().sort((a, b) => a - b);
-          const fnMults = allFinal.map(nw => nw / realDeflator / initialCapital); // 已排序(除以正常數保序)
+          const fnMults = allFinal.map(nw => nw / realDeflator / initialCapital); // 已排序（除以正常數保序）
           const fnPct = p => fnMults.length > 0 ? fnMults[Math.min(fnMults.length - 1, Math.floor(p * fnMults.length))] : 0;
           stats[strat] = {
             // 全宇宙視角
             successRate: (simCount - totals[strat].dead) / simCount * 100,
             expectedSurvivalYears: expectedSurvivalYears,
-            // 破產評估：破產路徑平均撐到第幾年(0 = 無人破產)
+            // 破產評估：破產路徑平均撐到第幾年（0 = 無人破產）
             avgRuinYear: ruins.length > 0 ? ruins.reduce((a, b) => a + b, 0) / ruins.length : 0,
             // 全宇宙期望實質提領：含破產路徑，天生被存活率加權，可拿來公平排序策略
             avgRealAllUniverse: allRealWs.length > 0 ? allRealWs.reduce((a, b) => a + b, 0) / simCount : 0,
@@ -1233,11 +1459,11 @@ const App = () => {
             avgRealWithdrawn: survCount > 0 ? survRealWs.reduce((a, b) => a + b, 0) / survCount : 0,
             qolRate: totals[strat].survivorYears > 0 ? 100 - totals[strat].survivorDowngraded / totals[strat].survivorYears * 100 : 0,
             medianCV: survCount > 0 ? cvs[Math.floor(survCount / 2)] : 0,
-            // 平均短少%：降級面積(低於首年購買力基準線下方)標準化後的中位數
+            // 平均短少%：降級面積（低於首年購買力基準線下方）標準化後的中位數
             medianShortfall: sf.length > 0 ? sf[Math.floor(sf.length / 2)] : 0,
-            // 期末實質淨值(中位，僅存活者)：遺產/安全邊際；過大可能代表生前花太少
+            // 期末實質淨值（中位，僅存活者）：遺產/安全邊際；過大可能代表生前花太少
             medianRealFinalNW: sfn.length > 0 ? sfn[Math.floor(sfn.length / 2)] / realDeflator : 0,
-            // 期末資產為初始的幾倍(全部宇宙，破產=0)：中位 + P10–P90 可能範圍
+            // 期末資產為初始的幾倍（全部宇宙，破產=0）：中位 + P10–P90 可能範圍
             finalMultMedian: fnMults.length > 0 ? fnMults[Math.floor(fnMults.length / 2)] : 0,
             finalMultP10: fnPct(0.10),
             finalMultP90: fnPct(0.90)
@@ -1257,20 +1483,20 @@ const App = () => {
       setIsSimulating(false);
     }, 50);
     return () => clearTimeout(timer);
-  }, [runToken]);
+  }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode, usePlan, spendFloorPct, useSmile, retireAge, smileDepth]);
   const renderChart = () => {
     if (!simResults) return null;
     let data = [];
     let yAxisLabel = '';
     if (viewMode === 'netWorth') {
       data = simResults.chartDataNW;
-      yAxisLabel = '淨值 (萬)';
+      yAxisLabel = '淨值（萬）';
     } else if (viewMode === 'withdrawal') {
       data = simResults.chartDataW;
-      yAxisLabel = '每年提領額 (萬)';
+      yAxisLabel = '每年提領額（萬）';
     } else if (viewMode === 'survival') {
       data = simResults.chartDataSurv;
-      yAxisLabel = '資金存活機率 (%)';
+      yAxisLabel = '資金存活機率（%）';
     }
     const legendPayload = activeStrategies.map(s => ({
       id: s.id,
@@ -1415,7 +1641,7 @@ const App = () => {
       color: s.color
     }));
     return /*#__PURE__*/React.createElement("div", {
-      className: "bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col animate-in fade-in h-auto md:h-[800px]"
+      className: "bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col animate-in fade-in h-auto md:h-[1000px]"
     }, /*#__PURE__*/React.createElement("div", {
       className: "bg-slate-50 p-4 border-b border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0 rounded-t-2xl"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
@@ -1426,7 +1652,7 @@ const App = () => {
     }), " \u6DF1\u5EA6\u7A3D\u6838"), /*#__PURE__*/React.createElement("p", {
       className: "text-[10px] md:text-xs text-slate-500 mt-1"
     }, "\u62BD\u51FA\u55AE\u4E00\u5E73\u884C\u5B87\u5B99\uFF0C\u89C0\u5BDF\u5728\u540C\u6A23\u5E02\u5834\u6F32\u8DCC\u4E0B\u7684\u7B56\u7565\u53CD\u61C9\u3002")), /*#__PURE__*/React.createElement("button", {
-      onClick: () => runSim(true),
+      onClick: () => setSimSeed(s => s + 1),
       className: "w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs md:text-sm font-bold transition-colors whitespace-nowrap shadow-sm"
     }, /*#__PURE__*/React.createElement(RefreshCw, {
       size: 14,
@@ -1650,7 +1876,7 @@ const App = () => {
     guyton: simResults?.stats?.guyton?.qolRate || 0,
     endowment: simResults?.stats?.endowment?.qolRate || 0
   }, {
-    name: '提領變異係數(CV)',
+    name: '提領變異係數（CV）',
     baseline: simResults?.stats?.baseline?.medianCV || 0,
     vanguard: simResults?.stats?.vanguard?.medianCV || 0,
     guyton: simResults?.stats?.guyton?.medianCV || 0,
@@ -1666,11 +1892,11 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, "\u9000\u4F11\u52D5\u614B\u63D0\u9818\u6A21\u64EC\u5668 ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v5.5"))), /*#__PURE__*/React.createElement("p", {
+  }, "v6.4"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, "\u7D50\u5408\u8499\u5730\u5361\u7F85\u5206\u4F48\u9810\u6E2C\u8207\u300C\u55AE\u4E00\u96A8\u6A5F\u8DEF\u5F91\u7A3D\u6838\u300D\u7684\u58D3\u529B\u6E2C\u8A66\u5E73\u53F0\u3002", /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-indigo-400"
-  }, "(\u5EFA\u8B70\u6A6B\u5411\u700F\u89BD)"))), /*#__PURE__*/React.createElement("button", {
+  }, "\uFF08\u5EFA\u8B70\u6A6B\u5411\u700F\u89BD\uFF09"))), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowDefinitions(!showDefinitions),
     className: "flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm shrink-0"
   }, /*#__PURE__*/React.createElement(BookOpen, {
@@ -1713,61 +1939,41 @@ const App = () => {
     size: 12
   }), " \u53C3\u8003\u6587\u737B References"), /*#__PURE__*/React.createElement("ul", {
     className: "text-[10px] text-slate-500 space-y-1.5 leading-relaxed list-disc pl-4"
-  }, /*#__PURE__*/React.createElement("li", null, "Bengen, W. P. (1994). Determining Withdrawal Rates Using Historical Data. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), ". \u2014 4% \u6CD5\u5247\u539F\u59CB\u51FA\u8655"), /*#__PURE__*/React.createElement("li", null, "Cooley, P. L., Hubbard, C. M., & Walz, D. T. (1998). Retirement Savings: Choosing a Sustainable Withdrawal Rate (Trinity Study). ", /*#__PURE__*/React.createElement("i", null, "AAII Journal"), "."), /*#__PURE__*/React.createElement("li", null, "Guyton, J. T. (2004). Decision Rules and Portfolio Management for Retirees. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), "."), /*#__PURE__*/React.createElement("li", null, "Guyton, J. T., & Klinger, W. J. (2006). Decision Rules and Maximum Initial Withdrawal Rates. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), ". \u2014 \u4FDD\u672C/\u7E41\u69AE\u8B77\u6B04\u3001\u4FEE\u6B63\u63D0\u9818\u6CD5\u5247"), /*#__PURE__*/React.createElement("li", null, "Jaconetti, C. M., et al. (2020). From Assets to Income: A Goal-Based Approach to Retirement Spending. ", /*#__PURE__*/React.createElement("i", null, "Vanguard"), ". \u2014 \u52D5\u614B\u63D0\u9818\u4E0A\u4E0B\u9650"), /*#__PURE__*/React.createElement("li", null, "Costa, P., Pakula, D., & Clarke, A. S. (2021). Fuel for the F.I.R.E.: Updating the 4% rule for early retirees. ", /*#__PURE__*/React.createElement("i", null, "Vanguard Research"), "."), /*#__PURE__*/React.createElement("li", null, "Tobin, J. (1974). What Is Permanent Endowment Income? ", /*#__PURE__*/React.createElement("i", null, "American Economic Review"), "\uFF1BSwensen, D. F. (2009). ", /*#__PURE__*/React.createElement("i", null, "Pioneering Portfolio Management"), ". \u2014 \u8036\u9B6F/Tobin 80/20 \u5E73\u6ED1\u652F\u51FA\u898F\u5247")), /*#__PURE__*/React.createElement("p", {
+  }, /*#__PURE__*/React.createElement("li", null, "Bengen, W. P. (1994). Determining Withdrawal Rates Using Historical Data. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), ". \u2014 4% \u6CD5\u5247\u539F\u59CB\u51FA\u8655"), /*#__PURE__*/React.createElement("li", null, "Cooley, P. L., Hubbard, C. M., & Walz, D. T. (1998). Retirement Savings: Choosing a Sustainable Withdrawal Rate (Trinity Study). ", /*#__PURE__*/React.createElement("i", null, "AAII Journal"), "."), /*#__PURE__*/React.createElement("li", null, "Guyton, J. T. (2004). Decision Rules and Portfolio Management for Retirees. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), "."), /*#__PURE__*/React.createElement("li", null, "Guyton, J. T., & Klinger, W. J. (2006). Decision Rules and Maximum Initial Withdrawal Rates. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), ". \u2014 \u4FDD\u672C\uFF0F\u7E41\u69AE\u8B77\u6B04\u3001\u4FEE\u6B63\u63D0\u9818\u6CD5\u5247"), /*#__PURE__*/React.createElement("li", null, "Jaconetti, C. M., et al. (2020). From Assets to Income: A Goal-Based Approach to Retirement Spending. ", /*#__PURE__*/React.createElement("i", null, "Vanguard"), ". \u2014 \u52D5\u614B\u63D0\u9818\u4E0A\u4E0B\u9650"), /*#__PURE__*/React.createElement("li", null, "Costa, P., Pakula, D., & Clarke, A. S. (2021). Fuel for the F.I.R.E.: Updating the 4% rule for early retirees. ", /*#__PURE__*/React.createElement("i", null, "Vanguard Research"), "."), /*#__PURE__*/React.createElement("li", null, "Tobin, J. (1974). What Is Permanent Endowment Income? ", /*#__PURE__*/React.createElement("i", null, "American Economic Review"), "\uFF1BSwensen, D. F. (2009). ", /*#__PURE__*/React.createElement("i", null, "Pioneering Portfolio Management"), ". \u2014 \u8036\u9B6F/Tobin 80/20 \u5E73\u6ED1\u652F\u51FA\u898F\u5247")), /*#__PURE__*/React.createElement("p", {
     className: "text-[9px] text-slate-400 mt-2 leading-relaxed"
   }, "\u672C\u6A21\u64EC\u5668\u4E4B\u6578\u503C\u70BA\u793A\u610F\u6027\u8499\u5730\u5361\u7F85\u7D50\u679C\uFF0C\u975E\u6295\u8CC7\u5EFA\u8B70\uFF1B\u5BE6\u969B\u898F\u5283\u8ACB\u7D0D\u5165\u7A05\u8CA0\u3001\u5065\u4FDD\u3001\u793E\u6703\u4FDD\u96AA\u7B49\u672C\u6A21\u578B\u672A\u6DB5\u84CB\u4E4B\u56E0\u7D20\u3002"))), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 relative"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "lg:col-span-4 flex flex-col gap-4 md:gap-5 lg:sticky lg:top-4 lg:h-[calc(100vh-40px)] lg:overflow-y-auto custom-scroll pr-1 px-2 md:px-0"
+    className: "lg:col-span-4 flex flex-col gap-4 md:gap-5 lg:sticky lg:top-4 lg:h-[calc(100vh-40px)] lg:overflow-y-auto lg:overscroll-contain custom-scroll pr-1 px-2 md:px-0"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-white p-4 md:p-5 rounded-xl shadow-sm border-2 border-indigo-100"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between gap-2 mb-3"
   }, /*#__PURE__*/React.createElement("h3", {
-    className: "font-extrabold text-slate-800 flex items-center gap-2 text-sm md:text-base"
+    className: "font-extrabold text-slate-800 flex items-center gap-1 text-sm md:text-base"
   }, /*#__PURE__*/React.createElement(Play, {
     className: "w-4 h-4 text-indigo-600"
-  }), " \u6A21\u64EC\u63A7\u5236"), /*#__PURE__*/React.createElement("span", {
-    className: `text-[9px] md:text-[10px] font-bold px-2 py-0.5 rounded-full ${isDirty ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`
-  }, isDirty ? '參數已變更' : '結果為最新')), /*#__PURE__*/React.createElement("button", {
-    onClick: () => runSim(false),
-    className: `w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm text-white ${isDirty ? 'bg-amber-500 hover:bg-amber-600 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700'}`
+  }), " \u6A21\u64EC\u63A7\u5236", /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-64",
+    size: 13
+  }, "\u8ABF\u6574\u4EFB\u4F55\u53C3\u6578\u6703", /*#__PURE__*/React.createElement("b", null, "\u5373\u6642\u91CD\u7B97"), "\u4E26\u66F4\u65B0\u53F3\u5074\u7D50\u679C\u2014\u2014\u4E14\u6CBF\u7528", /*#__PURE__*/React.createElement("b", null, "\u540C\u4E00\u7D44\u5E02\u5834\u8DEF\u5F91"), "\uFF0C\u6240\u4EE5\u4F60\u770B\u5230\u7684\u662F\u8A72\u53C3\u6578\u7684\u300C\u7D14\u6548\u679C\u300D\uFF08\u7121\u96A8\u6A5F\u96DC\u8A0A\uFF09\u3002\u6309\u300C\u91CD\u65B0\u6A21\u64EC\u4E00\u842C\u6B21\u300D\u624D\u6703", /*#__PURE__*/React.createElement("b", null, "\u91CD\u62BD\u4E00\u7D44\u5168\u65B0\u7684\u96A8\u6A5F\u5E02\u5834\u8DEF\u5F91"), "\u91CD\u8DD1\uFF0C\u7528\u4F86\u6AA2\u8996\u7D50\u8AD6\u5728\u4E0D\u540C\u904B\u6C23\u4E0B\u7A69\u4E0D\u7A69\u3002\u6BCF\u6B21\u90FD\u8DD1 10,000 \u689D\u4EBA\u751F\uFF0C\u5B58\u6D3B\u7387\u8207\u767E\u5206\u4F4D\u5DF2\u8DB3\u5920\u7A69\u5B9A\uFF08\u7D04 \xB10.6\u20131%\uFF09\u3002")), /*#__PURE__*/React.createElement("span", {
+    className: "text-[9px] md:text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700"
+  }, "\u53C3\u6578\u5373\u6642\u66F4\u65B0")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setSimSeed(s => s + 1),
+    className: "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
   }, /*#__PURE__*/React.createElement(RefreshCw, {
     size: 16,
     className: isSimulating ? 'animate-spin' : ''
-  }), " ", isDirty ? '套用變更並重新模擬' : '重新模擬'), /*#__PURE__*/React.createElement("p", {
-    className: "text-[9px] md:text-[10px] text-slate-500 mt-1.5 leading-relaxed"
-  }, "\u8ABF\u6574\u4EFB\u4F55\u53C3\u6578\u5F8C\u756B\u9762", /*#__PURE__*/React.createElement("b", null, "\u4E0D\u6703\u81EA\u52D5\u91CD\u8DD1"), "\uFF0C\u6309\u6B64\u9215\u624D\u6703\u4EE5\u76EE\u524D\u53C3\u6578\u91CD\u65B0\u6A21\u64EC(\u6CBF\u7528\u540C\u4E00\u7D44\u5E02\u5834\u8DEF\u5F91\uFF0C\u65B9\u4FBF\u4E7E\u6DE8\u5C0D\u7167)\u3002"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => runSim(true),
-    className: "w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] md:text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors"
-  }, /*#__PURE__*/React.createElement(Shuffle, {
-    size: 13
-  }), " \u63DB\u4E00\u7D44\u5E02\u5834\u8DEF\u5F91"), /*#__PURE__*/React.createElement("div", {
-    className: "mt-3 pt-3 border-t border-slate-100"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-1.5"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[11px] md:text-xs font-bold text-slate-700 flex items-center gap-1"
-  }, /*#__PURE__*/React.createElement(Settings, {
-    size: 13,
-    className: "text-slate-400"
-  }), " \u6A21\u64EC\u6B21\u6578"), /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] md:text-xs font-bold text-indigo-600"
-  }, simCount.toLocaleString(), " \u6B21")), /*#__PURE__*/React.createElement("div", {
-    className: "flex rounded-md overflow-hidden border border-slate-200"
-  }, [1000, 2000, 5000, 10000].map((n, idx) => /*#__PURE__*/React.createElement("button", {
-    key: n,
-    onClick: () => setSimCount(n),
-    className: `flex-1 px-1 py-1 text-[10px] md:text-xs font-bold transition-colors ${idx > 0 ? 'border-l border-slate-200' : ''} ${simCount === n ? 'bg-indigo-500 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`
-  }, n / 1000, "k"))), /*#__PURE__*/React.createElement("p", {
-    className: "text-[8px] md:text-[9px] text-slate-400 mt-1 leading-relaxed"
-  }, "\u6B21\u6578\u8D8A\u591A\uFF0C\u5B58\u6D3B\u7387\u8207\u767E\u5206\u4F4D\u8D8A\u7A69\u5B9A(1,000 \u6B21\u6642\u5B58\u6D3B\u7387\u7D04 \xB11\u20133%);\u6B21\u6578\u8D8A\u9AD8\u3001\u904B\u7B97\u8D8A\u4E45\u3002"))), /*#__PURE__*/React.createElement("div", {
+  }), " \u91CD\u65B0\u6A21\u64EC\u4E00\u842C\u6B21")), /*#__PURE__*/React.createElement("div", {
     className: "bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200"
   }, /*#__PURE__*/React.createElement("h3", {
-    className: "font-extrabold text-slate-800 mb-3 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base"
+    className: "font-extrabold text-slate-800 mb-3 flex items-center gap-1 border-b border-slate-100 pb-2 text-sm md:text-base"
   }, /*#__PURE__*/React.createElement(Scale, {
     className: "w-4 h-4 text-indigo-500"
-  }), " \u6BD4\u8F03\u6A21\u578B"), /*#__PURE__*/React.createElement("div", {
+  }), " \u6BD4\u8F03\u6A21\u578B", /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-60",
+    size: 13
+  }, "\u52FE\u9078\u8981\u7D0D\u5165\u6BD4\u8F03\u7684\u7B56\u7565\uFF08\u81F3\u5C11\u4E00\u500B\uFF09\u3002\u60F3\u770B\u5404\u7B56\u7565\u7684", /*#__PURE__*/React.createElement("b", null, "\u8A08\u7B97\u516C\u5F0F\u8207\u904B\u7B97\u908F\u8F2F"), "\uFF0C\u53EF\u9EDE\u4E0A\u65B9\u7684\u300C\u5C55\u958B\u7B56\u7565\u8A08\u7B97\u539F\u7406\u300D\uFF0C\u6216\u5728\u7D50\u679C\u5340\u5207\u63DB\u5230\u300C\u6DF1\u5EA6\u7A3D\u6838\u300D\u5206\u9801\u9010\u5E74\u6AA2\u8996\u3002")), /*#__PURE__*/React.createElement("div", {
     className: "flex flex-wrap gap-2"
   }, strategiesDef.map(s => {
     const on = selectedModels.includes(s.id);
@@ -1785,7 +1991,7 @@ const App = () => {
     }, s.icon), /*#__PURE__*/React.createElement("span", null, s.id === 'guyton' ? 'G-K' : s.name.split(' ')[0]));
   })), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-400 mt-2"
-  }, "\u9EDE\u9078\u5207\u63DB\u8981\u7D0D\u5165\u6BD4\u8F03\u7684\u7B56\u7565(\u81F3\u5C11\u4FDD\u7559\u4E00\u500B)\u3002")), /*#__PURE__*/React.createElement("div", {
+  }, "\u9EDE\u9078\u5207\u63DB\u8981\u7D0D\u5165\u6BD4\u8F03\u7684\u7B56\u7565\uFF08\u81F3\u5C11\u4FDD\u7559\u4E00\u500B\uFF09\u3002")), /*#__PURE__*/React.createElement("div", {
     className: "bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base"
@@ -1802,10 +2008,10 @@ const App = () => {
     step: 10,
     suffix: "%",
     color: "emerald",
-    info: "\u9019\u662F\u300C\u9000\u4F11\u5F8C\uFF0F\u63D0\u9818\u671F\u9593\u300D\u7684\u80A1\u7968\u6BD4\u4F8B\uFF0C\u4E0D\u662F\u7D2F\u7A4D\u671F\u3002\u6703\u81EA\u52D5\u9023\u52D5\u9810\u671F\u5831\u916C\u8207\u6CE2\u52D5\u7387(\u5168\u7403\u80A1/\u7F8E\u50B5\u9577\u671F\u6A21\u578B)\u3002\u6BD4\u4F8B\u8D8A\u9AD8\u9577\u671F\u5831\u916C\u8D8A\u9AD8\u3001\u4F46\u5831\u916C\u9806\u5E8F\u98A8\u96AA\u4E5F\u8D8A\u5927\u3002"
+    info: "\u9019\u662F\u300C\u9000\u4F11\u5F8C\uFF0F\u63D0\u9818\u671F\u9593\u300D\u7684\u80A1\u7968\u6BD4\u4F8B\uFF0C\u4E0D\u662F\u7D2F\u7A4D\u671F\u3002\u6703\u81EA\u52D5\u9023\u52D5\u9810\u671F\u5831\u916C\u8207\u6CE2\u52D5\u7387\uFF08\u5168\u7403\u80A1\uFF0F\u7F8E\u50B5\u9577\u671F\u6A21\u578B\uFF09\u3002\u6BD4\u4F8B\u8D8A\u9AD8\u9577\u671F\u5831\u916C\u8D8A\u9AD8\u3001\u4F46\u5831\u916C\u9806\u5E8F\u98A8\u96AA\u4E5F\u8D8A\u5927\u3002"
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex justify-between px-2 mt-1 text-[10px] text-slate-400 font-medium"
-  }, /*#__PURE__*/React.createElement("span", null, "\u4FDD\u5B88 (\u591A\u50B5)"), /*#__PURE__*/React.createElement("span", null, "\u7A4D\u6975 (\u591A\u80A1)"))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "\u4FDD\u5B88\uFF08\u591A\u50B5\uFF09"), /*#__PURE__*/React.createElement("span", null, "\u7A4D\u6975\uFF08\u591A\u80A1\uFF09"))), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-2 gap-2 md:gap-3 mb-4"
   }, /*#__PURE__*/React.createElement(InputSlider, {
     label: "\u9810\u671F\u5E74\u5316\u5831\u916C",
@@ -1876,16 +2082,16 @@ const App = () => {
     className: "text-[9px] text-slate-400 leading-tight mt-0.5"
   }, m.desc)))), /*#__PURE__*/React.createElement("p", {
     className: "text-[9px] text-slate-400 mt-2 leading-relaxed"
-  }, "\u5D29\u76E4\u60C5\u5883=\u540C\u6642\u58D3\u4F4E\u4E00\u751F\u7E3D\u5831\u916C\u7684\u885D\u64CA\uFF1B", /*#__PURE__*/React.createElement("br", null), "\u7D14\u9806\u5E8F\u98A8\u96AA=\u4FDD\u6301\u5831\u916C/\u6CE2\u52D5/\u7E3D\u5831\u916C\u4E0D\u8B8A\u3001\u53EA\u628A\u58DE\u5E74\u4EFD\u6392\u5230\u6700\u524D,\u55AE\u7368\u9694\u96E2\u300C\u9806\u5E8F\u300D\u6548\u679C\u3002"))), /*#__PURE__*/React.createElement("div", {
+  }, "\u5D29\u76E4\u60C5\u5883\uFF1D\u540C\u6642\u58D3\u4F4E\u4E00\u751F\u7E3D\u5831\u916C\u7684\u885D\u64CA\uFF1B", /*#__PURE__*/React.createElement("br", null), "\u7D14\u9806\u5E8F\u98A8\u96AA\uFF1D\u4FDD\u6301\u5831\u916C\uFF0F\u6CE2\u52D5\uFF0F\u7E3D\u5831\u916C\u4E0D\u8B8A\u3001\u53EA\u628A\u58DE\u5E74\u4EFD\u6392\u5230\u6700\u524D\uFF0C\u55AE\u7368\u9694\u96E2\u300C\u9806\u5E8F\u300D\u6548\u679C\u3002"))), /*#__PURE__*/React.createElement("div", {
     className: "bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base"
   }, /*#__PURE__*/React.createElement(Settings, {
     className: "w-4 h-4 text-slate-500"
   }), " \u500B\u4EBA\u9000\u4F11\u8A08\u756B"), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-1 gap-3"
+    className: "grid grid-cols-2 gap-2.5 md:gap-3"
   }, /*#__PURE__*/React.createElement(InputSlider, {
-    label: "\u9000\u4F11\u521D\u59CB\u8CC7\u7522",
+    label: "\u521D\u59CB\u8CC7\u7522",
     value: initialCapital,
     setter: setInitialCapital,
     min: 1000,
@@ -1894,7 +2100,7 @@ const App = () => {
     suffix: "\u842C",
     color: "indigo"
   }), /*#__PURE__*/React.createElement(InputSlider, {
-    label: "\u521D\u59CB\u63D0\u9818\u7387 (\u9996\u5E74)",
+    label: "\u9996\u5E74\u63D0\u9818\u7387",
     value: initialWithdrawalRate,
     setter: setInitialWithdrawalRate,
     min: 2.0,
@@ -1902,29 +2108,47 @@ const App = () => {
     step: 0.1,
     suffix: "%",
     color: "indigo"
-  }), /*#__PURE__*/React.createElement(InputSlider, {
-    label: "\u9810\u8A08\u9000\u4F11\u5E74\u9F61",
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "p-3 rounded-lg border bg-slate-50/50 border-slate-200 flex flex-col h-full"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between items-center gap-1 mb-3"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "text-xs font-bold text-slate-700 whitespace-nowrap tracking-tight"
+  }, "\u6027\u5225")), /*#__PURE__*/React.createElement("div", {
+    className: "mt-auto pt-1"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex rounded-md overflow-hidden border border-slate-300"
+  }, [['all', '全體'], ['male', '男'], ['female', '女']].map(([v, lbl], i) => /*#__PURE__*/React.createElement("button", {
+    key: v,
+    onClick: () => setGender(v),
+    className: `flex-1 px-1 py-1 text-xs font-bold transition-colors ${i > 0 ? 'border-l border-slate-200' : ''} ${gender === v ? 'bg-indigo-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`
+  }, lbl))))), /*#__PURE__*/React.createElement(InputSlider, {
+    label: "\u9000\u4F11\u5E74\u9F61",
     value: retireAge,
     setter: setRetireAge,
-    min: 45,
+    min: 35,
     max: 75,
     step: 1,
     suffix: "\u6B72",
-    color: "indigo"
+    color: "indigo",
+    info: /*#__PURE__*/React.createElement("span", null, "\u4F9D\u5167\u653F\u90E8 113 \u5E74\uFF082024\uFF09\u7C21\u6613\u751F\u547D\u8868\uFF0C", GENDER_LABEL[gender], "\u5728 ", retireAge, " \u6B72\u7684\u5E73\u5747\u9918\u547D\u7D04 ", /*#__PURE__*/React.createElement("b", null, lifeExpectancy(retireAge, gender), " \u5E74"), "\uFF08\u5E73\u5747\u7D04\u6D3B\u5230 ", Math.round(retireAge + lifeExpectancy(retireAge, gender)), " \u6B72\uFF09\u3002\u9019\u662F\u300C\u671F\u9593\u751F\u547D\u8868\u300D\u7684\u5E73\u5747\u503C\uFF0C\u7D04", /*#__PURE__*/React.createElement("b", null, "\u534A\u6578\u4EBA\u6703\u6D3B\u5F97\u66F4\u4E45"), "\u3002", /*#__PURE__*/React.createElement("br", null), "\u5224\u5B9A\u9580\u6ABB\uFF1A\u898F\u5283\u7D42\u9F61\u2267\u5E73\u5747\u7D42\u9F61\uFF0B8 \u5E74\uFF08\u53D6\u6574\u7684\u7D93\u9A57\u9580\u6ABB\uFF0C\u7D04\u5C0D\u61C9\u696D\u754C\u300C\u898F\u5283\u5230 90\u201395 \u6B72\u300D\u7684\u7A69\u5065\u5EFA\u8B70\uFF1B\u4EE5 65 \u6B72\u70BA\u4F8B\uFF0C\u6D3B\u5230 90\u300195 \u6B72\u7684\u6A5F\u7387\u50C5\u7D04 1/4\u30011/10\uFF09\u30020\u20138 \u5E74\u70BA\u63A5\u8FD1\u5E73\u5747\u3001\u70BA\u8CA0\u5247\u77ED\u65BC\u5E73\u5747\u9918\u547D\u3002\u8CC7\u6599\u4F86\u6E90\uFF1A\u5167\u653F\u90E8 113 \u5E74\u751F\u547D\u8868\uFF1BFPA Journal\u3001The American College\uFF08\u9000\u4F11\u7D42\u9F61\u5EFA\u8B70 90\u201395 \u6B72\uFF09\u3002\uFF08\u751F\u547D\u8868 85 \u6B72\u4EE5\u4E0A\u5408\u4F75\u8A08\u7B97\uFF0C\u6DF1\u5C3E\u9577\u58FD\u98A8\u96AA\u4ECD\u53EF\u80FD\u88AB\u4F4E\u4F30\u3002\uFF09")
   })), (() => {
+    const e0 = lifeExpectancy(retireAge, gender);
     const planTo = retireAge + years;
-    const enough = planTo >= 90;
-    return /*#__PURE__*/React.createElement("div", {
-      className: `mt-3 rounded-lg border px-3 py-2 ${enough ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`
-    }, /*#__PURE__*/React.createElement("p", {
-      className: "text-[10px] md:text-xs font-bold text-slate-700 flex items-center gap-1"
-    }, /*#__PURE__*/React.createElement(Activity, {
-      size: 13
-    }), " \u53F0\u7063\u5E73\u5747\u9918\u547D\u63D0\u9192"), /*#__PURE__*/React.createElement("p", {
-      className: "text-[9px] md:text-[11px] text-slate-600 mt-1 leading-relaxed"
-    }, "\u570B\u4EBA\u5E73\u5747\u58FD\u547D\u7D04 ", /*#__PURE__*/React.createElement("b", null, "81 \u6B72"), "(\u7537 77.4\uFF0F\u5973 84.3\uFF0C\u5167\u653F\u90E8 2024 \u7C21\u6613\u751F\u547D\u8868)\u3002\u4F46\u9019\u662F\u300C\u51FA\u751F\u6642\u300D\u7684\u5E73\u5747\uFF1A\u5DF2\u6D3B\u5230 ", retireAge, " \u6B72\u8005\u9918\u547D\u66F4\u9577\uFF0C\u4E14\u7D04", /*#__PURE__*/React.createElement("b", null, "\u534A\u6578\u6D3B\u5F97\u66F4\u4E45"), "\u3002\u9000\u4F11\u898F\u5283\u5EFA\u8B70\u6DB5\u84CB\u5230 ", /*#__PURE__*/React.createElement("b", null, "90\u201395 \u6B72"), "\u4EE5\u56E0\u61C9\u9577\u58FD\u98A8\u96AA\u3002"), /*#__PURE__*/React.createElement("p", {
-      className: `text-[10px] md:text-xs font-bold mt-1.5 ${enough ? 'text-emerald-700' : 'text-amber-700'}`
-    }, "\u76EE\u524D\u8A2D\u5B9A\uFF1A", retireAge, " \u6B72\u9000\u4F11 \xD7 ", years, " \u5E74 = \u898F\u5283\u5230 ", planTo, " \u6B72", enough ? '(緩衝充足 ✓)' : '(偏短，建議拉長模擬年限)'));
+    const buffer = years - e0;
+    const st = buffer >= 8 ? {
+      t: '緩衝充足 ✓',
+      cls: 'bg-emerald-50 border-emerald-200 text-emerald-700'
+    } : buffer >= 0 ? {
+      t: '接近平均餘命，建議拉長',
+      cls: 'bg-amber-50 border-amber-200 text-amber-700'
+    } : {
+      t: '偏短，建議拉長',
+      cls: 'bg-amber-50 border-amber-200 text-amber-700'
+    };
+    return /*#__PURE__*/React.createElement("p", {
+      className: `mt-3 rounded-lg border px-3 py-2 text-[10px] md:text-xs font-bold leading-relaxed ${st.cls}`
+    }, retireAge, " \u6B72\u9000\u4F11\uFF08", GENDER_LABEL[gender], "\u5E73\u5747\u9918\u547D ", e0, " \u5E74\uFF09\uFF0B\u6A21\u64EC ", years, " \u5E74\uFF1D\u898F\u5283\u5230 ", planTo, " \u6B72\uFF08", st.t, "\uFF09");
   })(), /*#__PURE__*/React.createElement("div", {
     className: "pt-4 mt-4 border-t border-slate-100"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1933,24 +2157,33 @@ const App = () => {
     className: "text-[11px] md:text-sm font-bold text-violet-700 flex items-center gap-1"
   }, /*#__PURE__*/React.createElement(Activity, {
     size: 14
-  }), " \u9000\u4F11\u652F\u51FA\u5FAE\u7B11\u66F2\u7DDA", /*#__PURE__*/React.createElement("span", {
-    className: "group relative cursor-help inline-flex items-center"
-  }, /*#__PURE__*/React.createElement(HelpCircle, {
-    size: 12,
-    className: "text-violet-300 ml-0.5"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "absolute top-full mt-1 left-0 w-60 p-2 bg-slate-800 text-white text-[10px] font-normal rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal break-words leading-relaxed text-left"
-  }, "\u5BE6\u8B49\u7814\u7A76(Blanchett 2014\uFF1BJ.P. Morgan\u300ARetirement by the Numbers\u300B2025)\u767C\u73FE\u9000\u4F11\u5BE6\u8CEA\u652F\u51FA\u4E26\u975E\u8FFD\u5E73\u901A\u81A8\uFF0C\u800C\u662F\u96A8\u5E74\u9F61\u905E\u6E1B\u2014\u2014\u7D04 60\u219285 \u6B72\u4E0B\u6ED1 26\u201330%(\u65C5\u904A/\u5916\u98DF/\u4EA4\u901A\u6E1B\u5C11\uFF0C\u91AB\u7642\u96D6\u5347\u4F46\u4E0D\u8DB3\u62B5\u92B7)\uFF0C\u672B\u671F\u7565\u56DE\u5347\u6210\u300C\u5FAE\u7B11\u300D\u3002\u958B\u555F\u5F8C\u76EE\u6A19\u652F\u51FA\u7DDA\u4F9D\u6B64\u96A8\u5E74\u9F61\u4E0B\u5F4E(\u4EE5 84 \u6B72\u7D04 \u221226% \u70BA\u9328)\uFF1B\u751F\u6D3B\u8CBB\u4E0B\u9650\u7DAD\u6301\u6C34\u5E73\u4E0D\u52D5\u3002"))), /*#__PURE__*/React.createElement("button", {
+  }), " \u9000\u4F11\u652F\u51FA\u5FAE\u7B11\u66F2\u7DDA", /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-64",
+    iconClass: "text-violet-400",
+    size: 12
+  }, "\u5BE6\u8B49\u7814\u7A76\u767C\u73FE\u9000\u4F11\u5BE6\u8CEA\u652F\u51FA\u4E26\u975E\u8FFD\u5E73\u901A\u81A8\uFF0C\u800C\u662F\u96A8\u5E74\u9F61\u905E\u6E1B\u2014\u2014\u7D04 60\u219285 \u6B72\u4E0B\u6ED1 26\u201330%\uFF08\u65C5\u904A\uFF0F\u5916\u98DF\uFF0F\u4EA4\u901A\u6E1B\u5C11\uFF0C\u91AB\u7642\u96D6\u5347\u4F46\u4E0D\u8DB3\u62B5\u92B7\uFF09\uFF0C\u672B\u671F\u7565\u56DE\u5347\u6210\u300C\u5FAE\u7B11\u300D\uFF0C\u53CD\u6620\u300C\u6D3B\u529B\u671F\u591A\u82B1\u3001\u7DE9\u6B65\u671F\u5C11\u82B1\u300D\u3002", /*#__PURE__*/React.createElement("span", {
+    className: "block mt-1.5 pt-1.5 border-t border-slate-600"
+  }, "\u8CC7\u6599\u4F86\u6E90\uFF1A", /*#__PURE__*/React.createElement("a", {
+    href: "https://www.financialplanningassociation.org/article/journal/MAY14-exploring-retirement-consumption-puzzle",
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "text-violet-300 underline"
+  }, "Blanchett (2014)\u300AExploring the Retirement Consumption Puzzle\u300B"), "\uFF0CJ. Financial Planning 27(5):34\u201342\uFF08$100k\u219284 \u6B72\u8C37\u5E95 $74,146 \u2248 \u221226%\uFF09\uFF1B", /*#__PURE__*/React.createElement("a", {
+    href: "https://am.jpmorgan.com/us/en/asset-management/adv/insights/retirement-insights/defined-contribution/retirement-by-the-numbers/",
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "text-violet-300 underline"
+  }, "J.P. Morgan\u300ARetirement by the Numbers\u300B(2025)"), "\uFF0860\u219285 \u6B72\u7D04 \u221230%\uFF1B5M+ Chase + EBRI 12M\uFF09\u3002"))), /*#__PURE__*/React.createElement("button", {
     onClick: () => setUseSmile(!useSmile),
     className: `relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${useSmile ? 'bg-violet-500' : 'bg-slate-300'}`
   }, /*#__PURE__*/React.createElement("span", {
     className: `pointer-events-none inline-block h-4 md:h-5 w-4 md:w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${useSmile ? 'translate-x-4 md:translate-x-5' : 'translate-x-0'}`
   }))), /*#__PURE__*/React.createElement("p", {
     className: "text-[9px] md:text-[10px] text-slate-500 mt-1"
-  }, "\u958B\u555F\u5F8C\u5404\u7B56\u7565\u7684\u76EE\u6A19\u652F\u51FA\u96A8\u5E74\u9F61\u81EA\u7136\u905E\u6E1B(65 \u6B72\u524D\u6301\u5E73\u3001\u7D04 84 \u6B72\u8C37\u5E95 \u2212", Math.round(smileDepth * 100), "%\u3001\u4E4B\u5F8C\u5FAE\u5347)\uFF0C\u53CD\u6620\u300C\u6D3B\u529B\u671F\u591A\u82B1\u3001\u7DE9\u6B65\u671F\u5C11\u82B1\u300D\u3002\u5B58\u6D3B\u7387\u6703\u56E0\u6B64\u63D0\u5347\u3001\u751F\u6D3B\u54C1\u8CEA\u6539\u4EE5\u5FAE\u7B11\u7DDA\u70BA\u57FA\u6E96\uFF1B\u751F\u6D3B\u8CBB\u4E0B\u9650(\u5FC5\u9700\u958B\u92B7)\u7DAD\u6301\u6C34\u5E73\u4E0D\u52D5\u3002"), useSmile && /*#__PURE__*/React.createElement("div", {
+  }, "\u958B\u555F\u5F8C\u5404\u7B56\u7565\u7684\u76EE\u6A19\u652F\u51FA\u6703\u96A8\u5E74\u9F61\u4E0B\u5F4E\uFF08\u7D04 84 \u6B72\u8C37\u5E95\uFF0D", Math.round(smileDepth * 100), "%\u3001\u4E4B\u5F8C\u5FAE\u5347\uFF09\uFF1B\u5B58\u6D3B\u7387\u56E0\u6B64\u63D0\u5347\u3001\u751F\u6D3B\u54C1\u8CEA\u6539\u4EE5\u5FAE\u7B11\u7DDA\u8861\u91CF\uFF0C\u751F\u6D3B\u8CBB\u4E0B\u9650\uFF08\u5FC5\u9700\u958B\u92B7\uFF09\u7DAD\u6301\u6C34\u5E73\u3002"), useSmile && /*#__PURE__*/React.createElement("div", {
     className: "mt-2"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center flex-wrap gap-1.5 mb-1.5"
+    className: "flex items-center flex-wrap gap-1.5"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-[9px] md:text-[10px] font-bold text-slate-600"
   }, "\u4E0B\u6ED1\u6DF1\u5EA6\u9328\u9EDE\uFF1A"), /*#__PURE__*/React.createElement("div", {
@@ -1958,22 +2191,10 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setSmileDepth(0.26),
     className: `px-2 py-0.5 text-[9px] md:text-[10px] font-bold transition-colors ${smileDepth === 0.26 ? 'bg-violet-500 text-white' : 'bg-white text-violet-600'}`
-  }, "\u221226% Blanchett"), /*#__PURE__*/React.createElement("button", {
+  }, "\uFF0D26% Blanchett"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setSmileDepth(0.30),
     className: `px-2 py-0.5 text-[9px] md:text-[10px] font-bold transition-colors border-l border-violet-200 ${smileDepth === 0.30 ? 'bg-violet-500 text-white' : 'bg-white text-violet-600'}`
-  }, "\u221230% JPM"))), /*#__PURE__*/React.createElement("p", {
-    className: "text-[8px] md:text-[9px] text-slate-400 leading-relaxed"
-  }, "\u8CC7\u6599\u4F86\u6E90\uFF1A", /*#__PURE__*/React.createElement("a", {
-    href: "https://www.financialplanningassociation.org/article/journal/MAY14-exploring-retirement-consumption-puzzle",
-    target: "_blank",
-    rel: "noopener noreferrer",
-    className: "text-violet-500 underline"
-  }, "Blanchett (2014)\u300AExploring the Retirement Consumption Puzzle\u300B"), "\uFF0CJ. Financial Planning 27(5):34\u201342\uFF08$100k \u521D\u59CB\u219284 \u6B72\u8C37\u5E95 $74,146 \u2248 \u221226%\uFF09\uFF1B", /*#__PURE__*/React.createElement("a", {
-    href: "https://am.jpmorgan.com/us/en/asset-management/adv/insights/retirement-insights/defined-contribution/retirement-by-the-numbers/",
-    target: "_blank",
-    rel: "noopener noreferrer",
-    className: "text-violet-500 underline"
-  }, "J.P. Morgan\u300ARetirement by the Numbers\u300B(2025)"), "\uFF0860\u219285 \u6B72\u5BE6\u8CEA\u652F\u51FA\u7D04 \u221230%\uFF1B5M+ Chase \u5BB6\u5EAD\uFF0BEBRI 12M\uFF09\u3002"))), /*#__PURE__*/React.createElement("div", {
+  }, "\uFF0D30% JPM"))))), /*#__PURE__*/React.createElement("div", {
     className: "pt-4 mt-4 border-t border-slate-100"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
@@ -1981,7 +2202,7 @@ const App = () => {
     className: "text-[11px] md:text-sm font-bold text-indigo-700 flex items-center gap-1"
   }, /*#__PURE__*/React.createElement(ShieldCheck, {
     size: 14
-  }), " \u751F\u6D3B\u8CBB\u4E0B\u9650(\u5E95\u7DDA)"), /*#__PURE__*/React.createElement("button", {
+  }), " \u751F\u6D3B\u8CBB\u4E0B\u9650\uFF08\u5E95\u7DDA\uFF09"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setUsePlan(!usePlan),
     className: `relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${usePlan ? 'bg-indigo-500' : 'bg-slate-300'}`
   }, /*#__PURE__*/React.createElement("span", {
@@ -1997,7 +2218,7 @@ const App = () => {
     step: 5,
     suffix: "%",
     color: "indigo",
-    info: `以「初始提領＝退休金×提領率」為 100% 往下調，並隨通膨保值(實質購買力)。目前約 ${Math.round(initialCapital * (initialWithdrawalRate / 100) * (spendFloorPct / 100)).toLocaleString()} 萬/年(今日購買力)。100%＝絕不減支(等同固定提領)、0%＝完全放任策略減支。`
+    info: `以「初始提領＝退休金×提領率」為 100% 往下調，並隨通膨保值（實質購買力）。目前約 ${Math.round(initialCapital * (initialWithdrawalRate / 100) * (spendFloorPct / 100)).toLocaleString()} 萬／年（今日購買力）。100%＝絕不減支（等同固定提領）、0%＝完全放任策略減支。`
   }))), /*#__PURE__*/React.createElement("div", {
     className: "bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200"
   }, /*#__PURE__*/React.createElement("h3", {
@@ -2039,7 +2260,7 @@ const App = () => {
   }), " Guyton-Klinger"), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-2 gap-2 mb-2"
   }, /*#__PURE__*/React.createElement(InputSlider, {
-    label: "\u4FDD\u672C:\u89F8\u767C\u95A5\u503C",
+    label: "\u4FDD\u672C\uFF1A\u89F8\u767C\u95A5\u503C",
     value: gkCapPreserveThresh,
     setter: setGkCapPreserveThresh,
     min: 0,
@@ -2049,7 +2270,7 @@ const App = () => {
     color: "amber",
     info: "\u63D0\u9818\u7387\u76F8\u5C0D\u521D\u59CB\u6500\u5347X%\u6642\u89F8\u767C"
   }), /*#__PURE__*/React.createElement(InputSlider, {
-    label: "\u4FDD\u672C:\u524A\u6E1B\u63D0\u9818",
+    label: "\u4FDD\u672C\uFF1A\u524A\u6E1B\u63D0\u9818",
     value: gkCapPreserveCut,
     setter: setGkCapPreserveCut,
     min: 0,
@@ -2060,7 +2281,7 @@ const App = () => {
   })), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-2 gap-2"
   }, /*#__PURE__*/React.createElement(InputSlider, {
-    label: "\u7E41\u69AE:\u89F8\u767C\u95A5\u503C",
+    label: "\u7E41\u69AE\uFF1A\u89F8\u767C\u95A5\u503C",
     value: gkProsperityThresh,
     setter: setGkProsperityThresh,
     min: 0,
@@ -2070,7 +2291,7 @@ const App = () => {
     color: "amber",
     info: "\u63D0\u9818\u7387\u76F8\u5C0D\u521D\u59CB\u4E0B\u964DX%\u6642\u89F8\u767C"
   }), /*#__PURE__*/React.createElement(InputSlider, {
-    label: "\u7E41\u69AE:\u589E\u52A0\u63D0\u9818",
+    label: "\u7E41\u69AE\uFF1A\u589E\u52A0\u63D0\u9818",
     value: gkProsperityHike,
     setter: setGkProsperityHike,
     min: 0,
@@ -2085,7 +2306,7 @@ const App = () => {
   }, /*#__PURE__*/React.createElement(Scale, {
     size: 14
   }), " Yale \u5E73\u6ED1\u6CD5"), /*#__PURE__*/React.createElement(InputSlider, {
-    label: "\u7A69\u5B9A\u6B0A\u91CD(\u9328\u5B9A\u53BB\u5E74\u652F\u51FA)",
+    label: "\u7A69\u5B9A\u6B0A\u91CD\uFF08\u9328\u5B9A\u53BB\u5E74\u652F\u51FA\uFF09",
     value: yaleWeight,
     setter: setYaleWeight,
     min: 0,
@@ -2093,7 +2314,7 @@ const App = () => {
     step: 5,
     suffix: "%",
     color: "pink",
-    info: "\u5169\u7AEF\u6703\u9000\u5316\uFF1A100%\u2248\u56FA\u5B9A\u91D1\u984D(\u7B49\u540C4%\u6CD5\u5247)\u30010%\u2248\u7D14\u767E\u5206\u6BD4\u63D0\u9818\uFF0C\u4E2D\u9593\u624D\u662F\u771F\u6B63\u7684 Yale \u5E73\u6ED1(\u8036\u9B6F\u752880%)\u3002\u73A9\u6CD5\uFF1A\u5F9E80\u5F80\u4E0B\u62C9\uFF0C\u89C0\u5BDF\u5B58\u6D3B\u7387\u2197\u3001CV\u2197\u8207\u671F\u671B\u63D0\u9818\u7684\u8B8A\u5316\u3002"
+    info: "\u5169\u7AEF\u6703\u9000\u5316\uFF1A100%\uFF1D\u56FA\u5B9A\u91D1\u984D\uFF08\u7B49\u540C4%\u6CD5\u5247\uFF09\u30010%\uFF1D\u7D14\u767E\u5206\u6BD4\u63D0\u9818\uFF0C\u4E2D\u9593\u624D\u662F\u771F\u6B63\u7684 Yale \u5E73\u6ED1\uFF08\u8036\u9B6F\u752880%\uFF09\u3002\u73A9\u6CD5\uFF1A\u5F9E80\u5F80\u4E0B\u62C9\uFF0C\u89C0\u5BDF\u5B58\u6D3B\u7387\u2197\u3001CV\u2197\u8207\u671F\u671B\u63D0\u9818\u7684\u8B8A\u5316\u3002"
   })))), /*#__PURE__*/React.createElement("div", {
     className: "lg:col-span-8 flex flex-col gap-4 md:gap-5 px-2 md:px-0"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2117,9 +2338,10 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("h2", {
     className: "text-sm md:text-lg font-extrabold text-slate-800 flex items-center gap-1.5"
   }, "\u8CC7\u7522\u8207\u63D0\u9818\u8DA8\u52E2", /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] md:text-xs font-medium text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded ml-1 group relative cursor-help"
-  }, "\u5E02\u5834\u4E2D\u4F4D\u5B87\u5B99", /*#__PURE__*/React.createElement("div", {
-    className: "absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-56 p-2 bg-slate-800 text-white text-[10px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal break-words"
+    className: "text-[10px] md:text-xs font-medium text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded ml-1 inline-flex items-center gap-0.5"
+  }, "\u5E02\u5834\u4E2D\u4F4D\u5B87\u5B99", /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-56",
+    size: 12
   }, "\u5F9E\u5168\u90E8\u5B87\u5B99\u4E2D\uFF0C\u4F9D\u300C\u7D2F\u7A4D\u5E02\u5834\u5831\u916C\u300D\u6392\u5E8F\u53D6\u4E2D\u4F4D\u7684\u90A3\u4E00\u689D\uFF0C\u8B93\u6240\u6709\u7B56\u7565\u8D70\u5728\u540C\u4E00\u689D\u5E02\u5834\u8DEF\u5F91\u4E0A\u505A\u516C\u5E73\u5C0D\u6BD4\u3002\u6CE8\u610F\uFF1A\u9019\u662F\u300C\u5E02\u5834\u300D\u4E2D\u4F4D\uFF0C\u975E\u5404\u7B56\u7565\u300C\u7D50\u679C\u300D\u7684\u4E2D\u4F4D\u6578\u3002"))), /*#__PURE__*/React.createElement("div", {
     className: "bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner"
   }, /*#__PURE__*/React.createElement("button", {
@@ -2141,19 +2363,18 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-slate-50 px-4 md:px-5 py-3 md:py-4 border-b border-slate-200 flex justify-between items-center"
   }, /*#__PURE__*/React.createElement("h3", {
-    className: "font-extrabold text-slate-800 text-sm md:text-base flex items-center gap-1.5"
+    className: "font-extrabold text-slate-800 text-sm md:text-base flex items-center gap-1"
   }, /*#__PURE__*/React.createElement(TrendingUp, {
     size: 16,
     className: "text-slate-500"
-  }), " \u671F\u672B\u7D2F\u7A4D\u8CC7\u7522(\u521D\u59CB\u7684\u5E7E\u500D)"), /*#__PURE__*/React.createElement("span", {
+  }), " \u671F\u672B\u7D2F\u7A4D\u8CC7\u7522\uFF08\u521D\u59CB\u7684\u5E7E\u500D\uFF09", /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-64",
+    size: 13
+  }, "\u7B2C ", years, " \u5E74\u8D70\u5B8C\u6642\uFF0C\u5E33\u6236\u5269\u9918\u6DE8\u503C\u662F\u9000\u4F11\u521D\u59CB\u8CC7\u7522\u7684\u5E7E\u500D\uFF08\u5DF2\u6298\u56DE\u4ECA\u65E5\u8CFC\u8CB7\u529B\uFF09\u3002\u5168\u90E8 ", simCount.toLocaleString(), " \u6B21\u6A21\u64EC\u4E00\u8D77\u7B97\u3001\u7834\u7522\u5B87\u5B99\u4EE5 0 \u8A08\u5165\uFF08\u907F\u514D\u5B58\u6D3B\u8005\u504F\u8AA4\uFF09\u3002\u500D\u6578\u9AD8 = \u907A\u7522\uFF0F\u5B89\u5168\u908A\u969B\u539A\uFF0C\u4F46\u4E5F\u53EF\u80FD\u4EE3\u8868\u751F\u524D\u82B1\u5F97\u592A\u4FDD\u5B88\u3002")), /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded"
   }, "\u5168\u90E8\u5B87\u5B99 \xB7 \u4ECA\u65E5\u8CFC\u8CB7\u529B")), /*#__PURE__*/React.createElement("div", {
     className: "p-4 md:p-5"
-  }, /*#__PURE__*/React.createElement("p", {
-    className: "text-[11px] text-slate-500 mb-4"
-  }, "\u7B2C ", years, " \u5E74\u8D70\u5B8C\u6642\uFF0C\u5E33\u6236\u5269\u9918\u6DE8\u503C\u662F\u9000\u4F11\u521D\u59CB\u8CC7\u7522\u7684\u5E7E\u500D(\u5DF2\u6298\u56DE\u4ECA\u65E5\u8CFC\u8CB7\u529B)\u3002", /*#__PURE__*/React.createElement("b", null, "\u5168\u90E8 ", simCount, " \u6B21\u6A21\u64EC\u4E00\u8D77\u7B97\u3001\u7834\u7522\u5B87\u5B99\u4EE5 0 \u8A08\u5165"), "(\u907F\u514D\u5B58\u6D3B\u8005\u504F\u8AA4)\u3002\u500D\u6578\u9AD8 = \u907A\u7522/\u5B89\u5168\u908A\u969B\u539A\uFF0C\u4F46\u4E5F\u53EF\u80FD\u4EE3\u8868", /*#__PURE__*/React.createElement("b", null, "\u751F\u524D\u82B1\u5F97\u592A\u4FDD\u5B88"), "\u3002", /*#__PURE__*/React.createElement("span", {
-    className: "text-slate-400"
-  }, "1\xD7 = \u671F\u672B\u6070\u7B49\u65BC\u521D\u59CB\uFF1B<1\xD7 = \u52D5\u7528\u4E86\u672C\u91D1\u3002")), (() => {
+  }, (() => {
     const fmData = activeStrategies.map(s => {
       const stat = simResults?.stats?.[s.id];
       if (!stat) return null;
@@ -2259,11 +2480,11 @@ const App = () => {
       className: "flex items-center gap-1.5 text-rose-500"
     }, /*#__PURE__*/React.createElement("span", {
       className: "inline-block w-5 border-t-2 border-dashed border-rose-400"
-    }), " \u521D\u59CB\u8CC7\u7522(1\xD7)"), /*#__PURE__*/React.createElement("span", {
+    }), " \u521D\u59CB\u8CC7\u7522\uFF081\xD7\uFF09"), /*#__PURE__*/React.createElement("span", {
       className: "flex items-center gap-1.5 text-slate-500"
     }, /*#__PURE__*/React.createElement("span", {
       className: "inline-block w-0.5 h-3 bg-slate-500"
-    }), " \u9B0D\u9B1A = 80% \u53EF\u80FD\u7BC4\u570D(P10\u2013P90)")), /*#__PURE__*/React.createElement("div", {
+    }), " \u9B1A\u7DDA\uFF08whisker\uFF09= 80% \u53EF\u80FD\u7BC4\u570D\uFF08P10\u2013P90\uFF09")), /*#__PURE__*/React.createElement("div", {
       className: "overflow-x-auto custom-scroll mt-2"
     }, /*#__PURE__*/React.createElement("table", {
       className: "w-full text-xs md:text-sm text-center"
@@ -2275,7 +2496,7 @@ const App = () => {
       className: "px-2 py-2"
     }, "\u671F\u672B\u4E2D\u4F4D\u500D\u6578"), /*#__PURE__*/React.createElement("th", {
       className: "px-2 py-2"
-    }, "\u53EF\u80FD\u7BC4\u570D(P10\u2013P90)"))), /*#__PURE__*/React.createElement("tbody", {
+    }, "\u53EF\u80FD\u7BC4\u570D\uFF08P10\u2013P90\uFF09"))), /*#__PURE__*/React.createElement("tbody", {
       className: "divide-y divide-slate-100"
     }, fmData.map((d, i) => /*#__PURE__*/React.createElement("tr", {
       key: i,
@@ -2304,7 +2525,7 @@ const App = () => {
     className: "text-sm font-bold text-slate-700 mb-1"
   }, "\u751F\u5B58\u7387 vs \u751F\u6D3B\u54C1\u8CEA\u5C0D\u6BD4"), /*#__PURE__*/React.createElement("p", {
     className: "text-[11px] text-slate-500 mb-4"
-  }, "\u52D5\u614B\u63D0\u9818\u7684\u672C\u8CEA\uFF0C\u5C31\u662F\u7528\u300C\u72A7\u7272\u90E8\u5206\u5E74\u4EFD\u7684\u8CFC\u8CB7\u529B(\u751F\u6D3B\u964D\u7D1A)\u300D\u4F86\u63DB\u53D6\u300C\u6975\u9AD8\u7684\u8CC7\u91D1\u5B58\u6D3B\u7387\u300D\u7684\u7B49\u50F9\u4EA4\u63DB\u3002"), /*#__PURE__*/React.createElement("div", {
+  }, "\u52D5\u614B\u63D0\u9818\u7684\u672C\u8CEA\uFF0C\u5C31\u662F\u7528\u300C\u72A7\u7272\u90E8\u5206\u5E74\u4EFD\u7684\u8CFC\u8CB7\u529B\uFF08\u751F\u6D3B\u964D\u7D1A\uFF09\u300D\u4F86\u63DB\u53D6\u300C\u6975\u9AD8\u7684\u8CC7\u91D1\u5B58\u6D3B\u7387\u300D\u7684\u7B49\u50F9\u4EA4\u63DB\u3002"), /*#__PURE__*/React.createElement("div", {
     className: "h-[200px] md:h-[250px] w-full mt-4"
   }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
     width: "100%",
@@ -2438,26 +2659,26 @@ const App = () => {
     className: "flex flex-col items-center gap-0.5"
   }, /*#__PURE__*/React.createElement("span", null, "\u5B58\u6D3B\u7387"), /*#__PURE__*/React.createElement("span", {
     className: "font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-emerald-500/90"
-  }, "\u6490\u904E\u5168\u7A0B\u4E0D\u7834\u7522(\u9644:\u671F\u671B\u5B58\u6D3B\u5E74)"))), /*#__PURE__*/React.createElement("th", {
+  }, "\u6490\u904E\u5168\u7A0B\u4E0D\u7834\u7522\uFF08\u9644\uFF1A\u671F\u671B\u5B58\u6D3B\u5E74\uFF09"))), /*#__PURE__*/React.createElement("th", {
     className: "px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50 align-top"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col items-center gap-0.5"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "group relative cursor-help inline-flex items-center gap-0.5 justify-center"
-  }, "\u9810\u671F\u751F\u6D3B\u54C1\u8CEA\u4F54\u6BD4 ", /*#__PURE__*/React.createElement(HelpCircle, {
-    size: 11,
-    className: "text-blue-300 shrink-0"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "absolute top-full mt-1 left-1/2 -translate-x-1/2 w-56 p-2 bg-slate-800 text-white text-[10px] font-normal rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none whitespace-normal break-words leading-relaxed tracking-normal text-left"
-  }, "\u6B64\u6B04\u5169\u500B\u6578\u5B57 \u2014 \u4E0A:\u5B88\u4F4F\u9996\u5E74\u8CFC\u8CB7\u529B\u7684\u5E74\u4EFD\u4F54\u6BD4(\u964D\u7D1A\u7684\u300C\u983B\u7387\u300D)\u3002\u4E0B:\u5B58\u6D3B\u5B87\u5B99\u4E2D,\u5404\u4EBA\u751F\u300C\u5728\u751F\u6D3B\u54C1\u8CEA\u964D\u4F4E\u7684\u5E74\u4EFD\u3001\u5E73\u5747\u6BCF\u5E74\u77ED\u5C11 %\u300D\u7684\u4E2D\u4F4D\u6578(\u964D\u7D1A\u7684\u300C\u6DF1\u5EA6\u300D)\u3002\u57FA\u6E96=\u7DAD\u6301\u9996\u5E74\u8CFC\u8CB7\u529B,\u9AD8\u65BC\u57FA\u6E96\u7684\u5E74\u4EFD\u4E0D\u8A08\u5165;\u5F9E\u4E0D\u964D\u7D1A\u8005\u986F\u793A\u300C\u5E7E\u4E4E\u4E0D\u964D\u7D1A\u300D\u3002")), /*#__PURE__*/React.createElement("span", {
+    className: "inline-flex items-center gap-0.5 justify-center"
+  }, "\u9810\u671F\u751F\u6D3B\u54C1\u8CEA\u4F54\u6BD4 ", /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-56",
+    align: "center",
+    iconClass: "text-blue-300",
+    size: 11
+  }, "\u6B64\u6B04\u5169\u500B\u6578\u5B57 \u2014 \u4E0A\uFF1A\u5B88\u4F4F\u9996\u5E74\u8CFC\u8CB7\u529B\u7684\u5E74\u4EFD\u4F54\u6BD4\uFF08\u964D\u7D1A\u7684\u300C\u983B\u7387\u300D\uFF09\u3002\u4E0B\uFF1A\u5B58\u6D3B\u5B87\u5B99\u4E2D\uFF0C\u5404\u4EBA\u751F\u300C\u5728\u751F\u6D3B\u54C1\u8CEA\u964D\u4F4E\u7684\u5E74\u4EFD\u3001\u5E73\u5747\u6BCF\u5E74\u77ED\u5C11 %\u300D\u7684\u4E2D\u4F4D\u6578\uFF08\u964D\u7D1A\u7684\u300C\u6DF1\u5EA6\u300D\uFF09\u3002\u57FA\u6E96\uFF1D\u7DAD\u6301\u9996\u5E74\u8CFC\u8CB7\u529B\uFF0C\u9AD8\u65BC\u57FA\u6E96\u7684\u5E74\u4EFD\u4E0D\u8A08\u5165\uFF1B\u5F9E\u4E0D\u964D\u7D1A\u8005\u986F\u793A\u300C\u5E7E\u4E4E\u4E0D\u964D\u7D1A\u300D\u3002")), /*#__PURE__*/React.createElement("span", {
     className: "font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-blue-400/90"
-  }, "\u983B\u7387(\u4E0A)\uFF0B\u964D\u7D1A\u6DF1\u5EA6(\u4E0B)"))), /*#__PURE__*/React.createElement("th", {
+  }, "\u983B\u7387\uFF08\u4E0A\uFF09\uFF0B\u964D\u7D1A\u6DF1\u5EA6\uFF08\u4E0B\uFF09"))), /*#__PURE__*/React.createElement("th", {
     className: "px-2 py-3 text-amber-700 bg-amber-50/50 align-top"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col items-center gap-0.5"
-  }, /*#__PURE__*/React.createElement("span", null, "\u63D0\u9818\u8B8A\u7570\u4FC2\u6578(CV)"), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", null, "\u63D0\u9818\u8B8A\u7570\u4FC2\u6578\uFF08CV\uFF09"), /*#__PURE__*/React.createElement("span", {
     className: "font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-amber-500/90"
-  }, "\u8D8A\u4F4E\u8D8A\u7A69,\u751F\u6D3B\u8CBB\u4E0D\u4E82\u8DF3"))))), /*#__PURE__*/React.createElement("tbody", {
+  }, "\u8D8A\u4F4E\u8D8A\u7A69\uFF0C\u751F\u6D3B\u8CBB\u4E0D\u4E82\u8DF3"))))), /*#__PURE__*/React.createElement("tbody", {
     className: "divide-y divide-slate-100"
   }, activeStrategies.map(s => {
     const stat = simResults?.stats?.[s.id];
@@ -2488,7 +2709,7 @@ const App = () => {
       className: "flex flex-col items-center gap-0.5"
     }, /*#__PURE__*/React.createElement("span", null, stat.qolRate.toFixed(1), "%"), /*#__PURE__*/React.createElement("span", {
       className: "text-[10px] font-normal tracking-tight text-blue-400/80"
-    }, stat.medianShortfall > 0 ? `降級時平均 -${stat.medianShortfall.toFixed(1)}%` : '幾乎不降級'))), /*#__PURE__*/React.createElement("td", {
+    }, stat.medianShortfall > 0 ? `降級時平均 －${stat.medianShortfall.toFixed(1)}%` : '幾乎不降級'))), /*#__PURE__*/React.createElement("td", {
       className: "px-2 py-3 md:py-4 font-mono font-bold text-amber-700 bg-amber-50/20"
     }, stat.medianCV.toFixed(1), "%"));
   }))))))) : renderAuditTrail(), /*#__PURE__*/React.createElement("div", {
