@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v6.5</title>
+    <title>退休動態提領模擬器 v7.1</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -395,7 +395,10 @@ const Settings = _ic('Settings'),
   ExternalLink = _ic('ExternalLink'),
   HelpCircle = _ic('HelpCircle'),
   PieChart = _ic('PieChart'),
-  Play = _ic('Play');
+  Play = _ic('Play'),
+  History = _ic('History'),
+  Layers = _ic('Layers'),
+  Info = _ic('Info');
 
 // --- Math & Simulation Engine ---
 // 可重現亂數（mulberry32）：用 simSeed 設種子。同種子→同一組市場路徑（切微笑開/關或調參數可乾淨對照）;按「重新模擬」換一組
@@ -678,6 +681,147 @@ const STRAT_I18N = {
 };
 
 // --- 股債配置連動模型 ---
+// === 美國歷史年度資料層（含息總報酬，已逐列校驗）===
+// 來源: Damodaran/NYU(報酬,1928-2025) + Minneapolis Fed(CPI-U年均)
+// 校驗: 累積值逐列回算 + 14基準點 + 長期幾何均值煙霧測試 全數通過
+// 註: 小型股1928採累積一致值(59.91%); 黃金1971前為官價(≈0),有效市場資料自1972
+const HIST_US = {
+  years: [1928, 1929, 1930, 1931, 1932, 1933, 1934, 1935, 1936, 1937, 1938, 1939, 1940, 1941, 1942, 1943, 1944, 1945, 1946, 1947, 1948, 1949, 1950, 1951, 1952, 1953, 1954, 1955, 1956, 1957, 1958, 1959, 1960, 1961, 1962, 1963, 1964, 1965, 1966, 1967, 1968, 1969, 1970, 1971, 1972, 1973, 1974, 1975, 1976, 1977, 1978, 1979, 1980, 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
+  ret: {
+    SP: [0.4381, -0.083, -0.2512, -0.4384, -0.0864, 0.4998, -0.0119, 0.4674, 0.3194, -0.3534, 0.2928, -0.011, -0.1067, -0.1277, 0.1917, 0.2506, 0.1903, 0.3582, -0.0843, 0.052, 0.057, 0.183, 0.3081, 0.2368, 0.1815, -0.0121, 0.5256, 0.326, 0.0744, -0.1046, 0.4372, 0.1206, 0.0034, 0.2664, -0.0881, 0.2261, 0.1642, 0.124, -0.0997, 0.238, 0.1081, -0.0824, 0.0356, 0.1422, 0.1876, -0.1431, -0.259, 0.37, 0.2383, -0.0698, 0.0651, 0.1852, 0.3174, -0.047, 0.2042, 0.2234, 0.0615, 0.3124, 0.1849, 0.0581, 0.1654, 0.3148, -0.0306, 0.3023, 0.0749, 0.0997, 0.0133, 0.372, 0.2268, 0.331, 0.2834, 0.2089, -0.0903, -0.1185, -0.2197, 0.2836, 0.1074, 0.0483, 0.1561, 0.0548, -0.3655, 0.2594, 0.1482, 0.021, 0.1589, 0.3215, 0.1352, 0.0138, 0.1177, 0.2161, -0.0423, 0.3121, 0.1802, 0.2847, -0.1804, 0.2606, 0.2488, 0.1778],
+    SMALL: [0.5991, -0.4608, -0.4835, -0.4362, 0.2865, 1.466, 0.2307, 0.549, 0.9641, -0.5394, 0.0516, -0.0486, -0.3288, -0.0675, 0.6301, 1.4302, 0.7115, 0.9441, -0.1373, -0.0174, -0.0001, 0.276, 0.5281, 0.0387, 0.0102, -0.0597, 0.6497, 0.2672, -0.0089, -0.1519, 0.688, 0.127, -0.0357, 0.2945, -0.0978, 0.1965, 0.2325, 0.4524, -0.0947, 1.1587, 0.6069, -0.3295, -0.1878, 0.1596, 0.0016, -0.388, -0.269, 0.5968, 0.4862, 0.3029, 0.2889, 0.4169, 0.4192, -0.0429, 0.2685, 0.3486, -0.145, 0.2451, 0.0209, -0.14, 0.1715, 0.0696, -0.2777, 0.4607, 0.2534, 0.2556, -0.0476, 0.3212, 0.1479, 0.2206, -0.1347, 0.3771, -0.0913, 0.3214, -0.0361, 0.9123, 0.173, 0.0378, 0.184, -0.0911, -0.4468, 0.4694, 0.2773, -0.1404, 0.1896, 0.503, 0.0153, -0.0912, 0.1702, 0.1513, -0.1621, 0.1192, 0.3416, 0.2241, -0.229, 0.0519, 0.087, 0.1653],
+    TBILL: [0.0308, 0.0316, 0.0455, 0.0231, 0.0107, 0.0096, 0.0028, 0.0017, 0.0017, 0.0028, 0.0007, 0.0005, 0.0004, 0.0013, 0.0034, 0.0038, 0.0038, 0.0038, 0.0038, 0.006, 0.0105, 0.0112, 0.012, 0.0152, 0.0172, 0.0189, 0.0094, 0.0172, 0.0262, 0.0322, 0.0177, 0.0339, 0.0287, 0.0235, 0.0277, 0.0316, 0.0355, 0.0395, 0.0486, 0.0429, 0.0534, 0.0667, 0.0639, 0.0433, 0.0406, 0.0704, 0.0785, 0.0579, 0.0498, 0.0526, 0.0718, 0.1005, 0.1139, 0.1404, 0.1109, 0.0895, 0.0992, 0.0772, 0.0615, 0.0596, 0.0689, 0.0839, 0.0775, 0.0554, 0.0351, 0.0307, 0.0437, 0.0566, 0.0515, 0.052, 0.0491, 0.0478, 0.06, 0.0348, 0.0164, 0.0103, 0.014, 0.0322, 0.0485, 0.0448, 0.014, 0.0015, 0.0014, 0.0005, 0.0009, 0.0006, 0.0003, 0.0005, 0.0032, 0.0095, 0.0197, 0.0211, 0.0036, 0.0004, 0.0209, 0.0528, 0.0518, 0.0421],
+    TBOND: [0.0084, 0.042, 0.0454, -0.0256, 0.0879, 0.0186, 0.0796, 0.0447, 0.0502, 0.0138, 0.0421, 0.0441, 0.054, -0.0202, 0.0229, 0.0249, 0.0258, 0.038, 0.0313, 0.0092, 0.0195, 0.0466, 0.0043, -0.003, 0.0227, 0.0414, 0.0329, -0.0134, -0.0226, 0.068, -0.021, -0.0265, 0.1164, 0.0206, 0.0569, 0.0168, 0.0373, 0.0072, 0.0291, -0.0158, 0.0327, -0.0501, 0.1675, 0.0979, 0.0282, 0.0366, 0.0199, 0.0361, 0.1598, 0.0129, -0.0078, 0.0067, -0.0299, 0.082, 0.3281, 0.032, 0.1373, 0.2571, 0.2428, -0.0496, 0.0822, 0.1769, 0.0624, 0.15, 0.0936, 0.1421, -0.0804, 0.2348, 0.0143, 0.0994, 0.1492, -0.0825, 0.1666, 0.0557, 0.1512, 0.0038, 0.0449, 0.0287, 0.0196, 0.1021, 0.201, -0.1112, 0.0846, 0.1604, 0.0297, -0.091, 0.1075, 0.0128, 0.0069, 0.028, -0.0002, 0.0964, 0.1133, -0.0442, -0.1783, 0.0388, -0.0164, 0.078],
+    BAA: [0.0322, 0.0302, 0.0054, -0.1568, 0.2359, 0.1297, 0.1882, 0.1331, 0.1138, -0.0442, 0.0924, 0.0798, 0.0865, 0.0501, 0.0518, 0.0804, 0.0657, 0.068, 0.0251, 0.0026, 0.0344, 0.0538, 0.0424, -0.0019, 0.0444, 0.0162, 0.0616, 0.0204, -0.0235, -0.0072, 0.0643, 0.0157, 0.0666, 0.051, 0.065, 0.0546, 0.0516, 0.0319, -0.0345, 0.009, 0.0485, -0.0203, 0.0565, 0.14, 0.1141, 0.0432, -0.0438, 0.1105, 0.1975, 0.0995, 0.0314, -0.0201, -0.0332, 0.0846, 0.2905, 0.1619, 0.1562, 0.2386, 0.2215, 0.0112, 0.1568, 0.1631, 0.0565, 0.164, 0.1368, 0.1644, -0.0123, 0.2009, 0.0528, 0.113, 0.081, 0.0097, 0.0938, 0.086, 0.1206, 0.1238, 0.1033, 0.0513, 0.0527, 0.049, -0.0344, 0.1996, 0.094, 0.1226, 0.094, -0.0113, 0.1075, -0.015, 0.1152, 0.0915, -0.0318, 0.1525, 0.106, 0.0102, -0.1523, 0.0874, 0.0174, 0.0696],
+    RE: [0.0149, -0.0206, -0.043, -0.0815, -0.1047, -0.0381, 0.0291, 0.0977, 0.0322, 0.0256, -0.0087, -0.013, 0.0331, -0.0838, 0.0333, 0.1145, 0.1658, 0.1178, 0.241, 0.2126, 0.0206, 0.0009, 0.0364, 0.0605, 0.0441, 0.1152, 0.0092, 0, 0.0091, 0.0272, 0.0066, 0.0011, 0.0077, 0.0098, 0.0032, 0.0214, 0.0126, 0.0166, 0.0122, 0.0232, 0.0413, 0.0699, 0.0822, 0.0424, 0.0298, 0.0342, 0.1007, 0.0677, 0.0818, 0.1465, 0.1572, 0.1374, 0.074, 0.051, 0.0056, 0.0475, 0.0468, 0.0747, 0.0961, 0.0785, 0.0722, 0.0439, -0.0069, -0.0017, 0.0082, 0.0216, 0.0252, 0.0179, 0.0243, 0.0402, 0.0644, 0.0768, 0.0929, 0.0668, 0.0956, 0.0981, 0.1364, 0.1351, 0.0173, -0.054, -0.12, -0.0385, -0.0412, -0.0389, 0.0644, 0.1072, 0.045, 0.0519, 0.0531, 0.0621, 0.0452, 0.0369, 0.1043, 0.1886, 0.0565, 0.0568, 0.0396, 0.0158],
+    GOLD: [0.001, -0.0015, 0.001, -0.1738, 0.2128, 0.2726, 0.3175, 0.0043, 0.0009, -0.0023, 0.0017, -0.0123, -0.0166, 0, 0, 0, 0, 0.0254, 0, 0, 0, -0.087, 0.0956, 0, -0.0035, 0.0069, 0.0057, -0.0003, -0.0011, -0.0011, 0.0043, 0, 0.0048, -0.0006, -0.0006, -0.004, 0.0003, 0.0006, 0.0003, -0.0051, 0.1247, 0.0501, -0.0945, 0.1669, 0.4878, 0.7296, 0.6615, -0.248, -0.041, 0.2264, 0.3701, 1.2655, 0.1519, -0.326, 0.1562, -0.168, -0.1938, 0.06, 0.1896, 0.2453, -0.1526, -0.0284, -0.0311, -0.0856, -0.0573, 0.1768, -0.0217, 0.0098, -0.0459, -0.2141, -0.0083, 0.0085, -0.0544, 0.0075, 0.2557, 0.1989, 0.0465, 0.1777, 0.232, 0.3192, 0.0432, 0.2504, 0.2924, 0.1202, 0.0568, -0.2761, 0.0012, -0.1211, 0.081, 0.1266, -0.0093, 0.1908, 0.2417, -0.0375, 0.0055, 0.1326, 0.2596, 0.6622],
+    EAFE: [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, -0.1051, 0.3121, 0.376, -0.1417, -0.2215, 0.371, 0.0374, 0.1942, 0.343, 0.0618, 0.2443, -0.0103, -0.0086, 0.2461, 0.0786, 0.5672, 0.6994, 0.2493, 0.2859, 0.108, -0.232, 0.125, -0.1185, 0.3294, 0.0806, 0.1155, 0.0636, 0.0206, 0.2033, 0.273, -0.1396, -0.2121, -0.1566, 0.3917, 0.207, 0.1402, 0.2686, 0.1163, -0.4306, 0.3246, 0.0821, -0.1173, 0.179, 0.2329, -0.0448, -0.0039, 0.0151, 0.2562, -0.1336, 0.2266, 0.0828, 0.1178, -0.1401, 0.1885, 0.0435, 0.3189]
+  },
+  infl: [-0.012, 0, -0.027, -0.089, -0.103, -0.052, 0.035, 0.026, 0.01, 0.037, -0.02, -0.013, 0.007, 0.051, 0.109, 0.06, 0.016, 0.023, 0.085, 0.144, 0.077, -0.01, 0.011, 0.079, 0.023, 0.008, 0.003, -0.003, 0.015, 0.033, 0.027, 0.0108, 0.015, 0.011, 0.012, 0.012, 0.013, 0.016, 0.03, 0.028, 0.043, 0.055, 0.058, 0.043, 0.033, 0.062, 0.111, 0.091, 0.057, 0.065, 0.076, 0.113, 0.135, 0.103, 0.061, 0.032, 0.043, 0.035, 0.019, 0.037, 0.041, 0.048, 0.054, 0.042, 0.03, 0.03, 0.026, 0.028, 0.029, 0.023, 0.016, 0.022, 0.034, 0.028, 0.016, 0.023, 0.027, 0.034, 0.032, 0.029, 0.038, -0.004, 0.016, 0.032, 0.021, 0.015, 0.016, 0.001, 0.013, 0.021, 0.024, 0.018, 0.012, 0.047, 0.08, 0.041, 0.029, 0.026],
+  start: {
+    GOLD: 1972,
+    EAFE: 1970
+  } // 各資產有效資料起始年(其餘=1928)
+};
+const HIST_ASSETS = [{
+  key: 'SP',
+  zh: '美股大型',
+  en: 'US large cap',
+  color: '#0ea5e9'
+}, {
+  key: 'SMALL',
+  zh: '美股小型',
+  en: 'US small cap',
+  color: '#6366f1'
+}, {
+  key: 'EAFE',
+  zh: '已開發除美(EAFE)',
+  en: 'Developed ex-US (EAFE)',
+  color: '#14b8a6'
+}, {
+  key: 'TBOND',
+  zh: '10年期公債',
+  en: '10y Treasury',
+  color: '#10b981'
+}, {
+  key: 'BAA',
+  zh: 'Baa公司債',
+  en: 'Baa corporate',
+  color: '#f59e0b'
+}, {
+  key: 'TBILL',
+  zh: '現金(T-bill)',
+  en: 'Cash (T-bill)',
+  color: '#94a3b8'
+}, {
+  key: 'RE',
+  zh: '不動產',
+  en: 'Real estate',
+  color: '#ec4899'
+}, {
+  key: 'GOLD',
+  zh: '黃金',
+  en: 'Gold',
+  color: '#eab308'
+}];
+const BOOT_MEAN_BLOCK = 7; // stationary block bootstrap 平均區塊長(年)
+const _histMeanLog = arr => {
+  let s = 0;
+  for (let i = 0; i < arr.length; i++) s += Math.log(1 + arr[i]);
+  return s / arr.length;
+};
+// Mode A：股/債抽象的歷史混合序列（定權重 = 每年再平衡）
+const histBlendAB = stockRatio => {
+  const ws = stockRatio / 100,
+    wb = 1 - ws,
+    n = HIST_US.years.length,
+    out = [];
+  for (let k = 0; k < n; k++) out.push({
+    r: ws * HIST_US.ret.SP[k] + wb * HIST_US.ret.TBOND[k],
+    infl: HIST_US.infl[k]
+  });
+  return out;
+};
+// stationary block bootstrap（Politis–Romano，平均區塊長 L，繞接）+ 對數重新置中（報酬與通膨各自平移到目標，形狀/聯合相關保留）
+const histBootstrapPath = (blend, years, targetCagr, targetInfl, meanBlock) => {
+  const n = blend.length,
+    p = 1 / meanBlock;
+  const shiftR = Math.log(1 + targetCagr) - _histMeanLog(blend.map(b => b.r));
+  const shiftI = Math.log(1 + targetInfl) - _histMeanLog(blend.map(b => b.infl));
+  let idx = Math.floor(nextRandom() * n);
+  const rets = [],
+    infls = [];
+  for (let t = 0; t < years; t++) {
+    if (t > 0) {
+      if (nextRandom() < p) idx = Math.floor(nextRandom() * n);else idx = (idx + 1) % n;
+    }
+    const b = blend[idx];
+    rets.push(Math.exp(Math.log(1 + b.r) + shiftR) - 1);
+    infls.push(Math.exp(Math.log(1 + b.infl) + shiftI) - 1);
+  }
+  return {
+    rets,
+    infls
+  };
+};
+// Mode B：多資產重疊實際窗（定權重 = 每年再平衡 → 混合報酬 = Σ w_i r_i）
+// 一組權重下，可用歷史窗的起始年 = 所有「選入資產」有效資料起始年的最大值
+const histStartYear = weights => {
+  let sy = 1928;
+  for (const k in weights) if (weights[k] > 0) sy = Math.max(sy, HIST_US.start && HIST_US.start[k] || 1928);
+  return sy;
+};
+const histOverlappingWindows = (weights, years) => {
+  const _tot = Object.values(weights).reduce((s, v) => s + (v || 0), 0) || 1;
+  const w = {};
+  for (const k in weights) if (weights[k] > 0) w[k] = weights[k] / _tot; // 正規化為比例
+  const startYr = histStartYear(weights);
+  const lastStart = 2025 - years + 1;
+  const wins = [];
+  for (let sy = startYr; sy <= lastStart; sy++) {
+    const k0 = HIST_US.years.indexOf(sy);
+    if (k0 < 0) continue;
+    const rets = [],
+      infls = [];
+    for (let t = 0; t < years; t++) {
+      const k = k0 + t;
+      let r = 0;
+      for (const a in w) r += w[a] * HIST_US.ret[a][k];
+      rets.push(r);
+      infls.push(HIST_US.infl[k]);
+    }
+    wins.push({
+      start: sy,
+      rets,
+      infls
+    });
+  }
+  return wins;
+};
+// 輕量：只算可用重疊窗數量（給 UI 即時顯示，不建陣列）
+const histWindowCount = (weights, years) => {
+  return Math.max(0, 2025 - years + 1 - histStartYear(weights) + 1);
+};
 const getAssetAllocationParams = stockRatio => {
   const stockReturn = 10.0;
   const stockVol = 18.0;
@@ -745,7 +889,9 @@ const InputSlider = memo(({
   suffix,
   info,
   color = 'indigo',
-  scale = 1
+  scale = 1,
+  disabled = false,
+  disabledNote
 }) => {
   const [inputValue, setInputValue] = useState(value / scale);
   useEffect(() => setInputValue(value / scale), [value, scale]);
@@ -766,19 +912,22 @@ const InputSlider = memo(({
     pink: 'bg-pink-50/30 border-pink-100/50'
   };
   return /*#__PURE__*/React.createElement("div", {
-    className: `p-3 md:p-3 rounded-lg border ${bgColors[color]} flex flex-col h-full relative group`
+    className: `p-3 md:p-3 rounded-lg border ${bgColors[color]} flex flex-col h-full relative group ${disabled ? 'opacity-45' : ''}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex justify-between items-center gap-1 mb-3"
   }, /*#__PURE__*/React.createElement("label", {
     className: "text-xs font-bold text-slate-700 flex items-center gap-1 tracking-tight"
   }, label, info && /*#__PURE__*/React.createElement(InfoPopover, {
     w: "w-48"
-  }, info)), /*#__PURE__*/React.createElement("div", {
+  }, info)), disabled && disabledNote ? /*#__PURE__*/React.createElement("span", {
+    className: "text-[9px] font-bold text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 shrink-0"
+  }, disabledNote) : /*#__PURE__*/React.createElement("div", {
     className: "flex items-center bg-white rounded border border-slate-300 shadow-sm px-1.5 py-0.5 shrink-0 min-w-0"
   }, /*#__PURE__*/React.createElement("input", {
     type: "number",
     step: step / scale,
     value: inputValue,
+    disabled: disabled,
     onChange: e => setInputValue(e.target.value),
     onBlur: handleBlur,
     onKeyDown: e => e.key === 'Enter' && e.target.blur(),
@@ -793,8 +942,9 @@ const InputSlider = memo(({
     max: max / scale,
     step: step / scale,
     value: value / scale,
+    disabled: disabled,
     onChange: e => setter(Number(e.target.value) * scale),
-    className: `w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-${color}-500`
+    className: `w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-${color}-500 ${disabled ? 'pointer-events-none' : ''}`
   })));
 });
 const fmtWanEn = wan => {
@@ -898,6 +1048,12 @@ const App = () => {
   const [retireAge, setRetireAge] = useState(65); // 預計退休年齡：供餘命提醒，且微笑曲線開啟時作為年齡基準進入引擎
   const [gender, setGender] = useState('all'); // 性別：供平均餘命提醒查表（全體／男／女），不影響模擬引擎
   const [simCount] = useState(10000); // 固定每次模擬 10,000 條人生（已移除可調選項）
+  const [marketMode, setMarketMode] = useState('sim'); // 'sim'(你的假設) | 'hist'(純歷史回測)
+  const [riskEngine, setRiskEngine] = useState('gaussian'); // 'gaussian' | 'bootstrap'（僅 sim 模式）
+  const [histWeights, setHistWeights] = useState({
+    SP: 0.6,
+    TBOND: 0.4
+  }); // Mode B 多資產目標權重
   const [stressMode, setStressMode] = useState('none'); // 'none' | 'crash' | 'sequence'
   const [usePlan, setUsePlan] = useState(false); // 個人退休計畫：生活費下限開關
   const [useSmile, setUseSmile] = useState(false); // 退休支出微笑曲線開關（依年齡彎曲目標線）
@@ -910,6 +1066,17 @@ const App = () => {
     setCagr(params.r);
     setVolatility(params.v);
   };
+  // Mode B：設定單一資產權重（pct 0–100 → 小數）；0 則移除該資產
+  const setHistWeight = (key, pct) => {
+    setHistWeights(prev => {
+      const next = {
+        ...prev
+      };
+      if (pct <= 0) delete next[key];else next[key] = pct / 100;
+      return next;
+    });
+  };
+  const histWeightSumPct = Math.round(Object.values(histWeights).reduce((s, v) => s + (v || 0), 0) * 100);
   const [vanCeiling, setVanCeiling] = useState(5.0);
   const [vanFloor, setVanFloor] = useState(2.5);
   const [gkCapPreserveThresh, setGkCapPreserveThresh] = useState(20);
@@ -925,6 +1092,15 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [{
+    ver: 'v7.2',
+    changes: ['修正(影響歷史抽樣／純歷史回測,常態分佈模式結果不變):Guyton-Klinger 與 Yale 平滑法的「依通膨調升」原誤用固定通膨假設值,改為各路徑的實際逐年通膨(與基準 4% 法則同口徑)——高通膨年代(如 1970 年代)先前會低估提領調升、進而高估存活', '修正:期末「實質倍數」與「實質遺產中位數」原以單一固定通膨折現所有路徑,改為每條路徑以自身實際累積通膨折現;先前會高估高通膨世代的實質期末財富(歷史模式 Guyton 30 年世代實質倍數約由 4.4 修正為 3.6)', '微笑目標線改用中位路徑的實際累積通膨', '以上修正在「常態分佈」模式下數值完全不變(該模式通膨本為固定率)']
+  }, {
+    ver: 'v7.1',
+    changes: ['純歷史回測新增「已開發除美（EAFE）」資產：MSCI EAFE 含息總報酬（美元）1970–2025，以獨立來源的價格報酬交叉驗證（差額＝合理股息率）；選入後可用歷史窗自動限縮為 1970 起算', '「展開策略計算原理」新增「市場情境三種產生方式」詳解（常態分佈／歷史抽樣／純歷史回測的抽樣原理）與完整資料來源、驗證方式', '參數區浮層改為淺白短句（如風險引擎），完整機制與來源移至「展開策略計算原理」', '修正：風險引擎說明浮層原本被左側面板右緣裁切，改為向左展開']
+  }, {
+    ver: 'v7.0',
+    changes: ['新增「市場模式」：你的假設（蒙地卡羅）／純歷史回測（美國 1928–2025 實際資料）兩大模式，於「資產配置與市場環境」頂端切換', '「你的假設」下新增「風險引擎」：常態分佈／歷史抽樣——歷史抽樣＝對美國真實年報酬做 stationary block bootstrap（平均區塊 7 年、繞接），保留單年厚尾與壞年連跌的形狀，再以對數平移把長期均值重置到你設定的報酬與通膨（你決定 level、歷史決定 shape）；波動率改由歷史決定', '「純歷史回測」：七類資產（美股大型／小型、10 年期公債、Baa 公司債、現金、不動產、黃金）自訂權重、每年再平衡，跑所有重疊的實際歷史時段；報酬／波動／通膨全部來自歷史，顯示實際可用世代數（非一萬條），含黃金時自 1972 起算', '資料來源：Damodaran（NYU，含息總報酬）＋ Minneapolis Fed（CPI-U 年均），經逐列校驗（累積值回算＋基準點＋長期幾何均值煙霧測試）零錯誤後內建', '歷史模式下自動停用不適用的控制：波動／報酬／通膨滑桿（標示「歷史決定」）、壓力測試、「重抽宇宙」鈕（回測為確定性，結果固定）']
+  }, {
     ver: 'v6.5',
     changes: ['新增中／英（中｜EN）語言切換：全站介面、說明、浮層、參考文獻註解全面雙語化（版本紀錄維持中文）', '英文模式標點改半形；單位翻譯：歲→y/o、年→yrs、萬→×10k；唯讀金額（生活費下限、稽核期末淨值）在英文模式以 M／K 顯示（例：20M、800K）', '手機版：英文模式參數區由 2×2 改為單欄（1×4），放寬標籤換行避免長字溢出；保留橫向瀏覽建議']
   }, {
@@ -988,210 +1164,18 @@ const App = () => {
   useEffect(() => {
     setIsSimulating(true);
     const timer = setTimeout(() => {
-      const runSimulation = () => {
-        const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
-        const pathsNW = {
-          baseline: [],
-          vanguard: [],
-          guyton: []
-        };
-        const pathsW = {
-          baseline: [],
-          vanguard: [],
-          guyton: []
-        };
-        const survivals = {
-          baseline: new Array(years + 1).fill(0),
-          vanguard: new Array(years + 1).fill(0),
-          guyton: new Array(years + 1).fill(0)
-        };
-        let totals = {
-          baseline: {
-            dead: 0,
-            finalNW: [],
-            totalWithdrawn: [],
-            downgradedYears: 0,
-            wCVData: []
-          },
-          vanguard: {
-            dead: 0,
-            finalNW: [],
-            totalWithdrawn: [],
-            downgradedYears: 0,
-            wCVData: []
-          },
-          guyton: {
-            dead: 0,
-            finalNW: [],
-            totalWithdrawn: [],
-            downgradedYears: 0,
-            wCVData: []
-          }
-        };
-        const auditData = [];
-        const universePerformances = [];
-        for (let i = 0; i < simCount; i++) {
-          const marketReturns = [];
-          const inflFactors = [];
-          let currentInflFactor = 1;
-          let pathMarketReturn = 1;
-          for (let t = 0; t < years; t++) {
-            const Z = randn_bm();
-            let r = cagr / 100 + volatility / 100 * Z;
-            if (stressMode === 'crash' && t < 3) {
-              r = -0.15;
-            }
-            marketReturns.push(r);
-            pathMarketReturn *= 1 + r;
-            currentInflFactor *= 1 + inflation / 100;
-            inflFactors.push(currentInflFactor);
-            if (i === 0) {
-              auditData.push({
-                year: t + 1,
-                marketReturn: r * 100,
-                inflationMult: currentInflFactor,
-                baseline: {},
-                vanguard: {},
-                guyton: {}
-              });
-            }
-          }
-          universePerformances.push({
-            idx: i,
-            totalReturn: pathMarketReturn
-          });
-          const simulateStrategy = (stratId, logicFn) => {
-            let nw = initialCapital;
-            let w = 0;
-            let dead = false;
-            const pathNW = [];
-            const pathW = [];
-            const pathRealW = [];
-            let totW = 0;
-            for (let t = 0; t < years; t++) {
-              let currentNote = '';
-              const expectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t - 1];
-              if (!dead) {
-                const res = logicFn(t, nw, pathW, marketReturns, inflFactors, expectedRealW);
-                w = res.w;
-                currentNote = res.note;
-              } else {
-                w = 0;
-                currentNote = '資產耗盡';
-              }
-              if (w < expectedRealW - 0.1) totals[stratId].downgradedYears++;
-              if (!dead) {
-                nw -= w;
-                if (nw <= 0) {
-                  nw = 0;
-                  dead = true;
-                } else {
-                  nw *= 1 + marketReturns[t];
-                }
-              }
-              totW += w;
-              pathNW.push(nw);
-              pathW.push(w);
-              pathRealW.push(t === 0 ? w : w / inflFactors[t - 1]);
-              if (!dead) survivals[stratId][t + 1]++;
-              if (i === 0) {
-                auditData[t][stratId].nw = nw;
-                auditData[t][stratId].w = w;
-                auditData[t][stratId].note = currentNote;
-              }
-            }
-            if (nw <= 0) totals[stratId].dead++;
-            totals[stratId].finalNW.push(nw);
-            totals[stratId].totalWithdrawn.push(totW);
-            pathsNW[stratId].push(pathNW);
-            pathsW[stratId].push(pathW);
-            const meanW = pathRealW.reduce((a, b) => a + b, 0) / years;
-            const varW = pathRealW.reduce((a, b) => a + Math.pow(b - meanW, 2), 0) / years;
-            const stdW = Math.sqrt(varW);
-            totals[stratId].wCVData.push(meanW > 0 ? stdW / meanW * 100 : 0);
-          };
-          simulateStrategy('baseline', (t, nw, histW, mr, inf, exp) => {
-            if (t === 0) return {
-              w: initialWithdrawal,
-              note: '初始提領'
-            };
-            return {
-              w: initialWithdrawal * inf[t - 1],
-              note: '依通膨調整'
-            };
-          });
-          simulateStrategy('vanguard', (t, nw, histW, mr, inf, exp) => {
-            if (t === 0) return {
-              w: initialWithdrawal,
-              note: '初始提領'
-            };
-            const expectedW = nw * (initialWithdrawalRate / 100);
-            const prevActualW = histW[t - 1];
-            const maxW = prevActualW * (1 + vanCeiling / 100);
-            const minW = prevActualW * (1 - vanFloor / 100);
-            const actualW = Math.min(Math.max(expectedW, minW), maxW);
-            let note = '比例自然變動';
-            if (actualW === maxW && expectedW > maxW + 0.1) note = '🟢觸發上限（限縮）';else if (actualW === minW && expectedW < minW - 0.1) note = '🔴觸發下限（保護）';
-            return {
-              w: actualW,
-              note
-            };
-          });
-          simulateStrategy('guyton', (t, nw, histW, mr, inf, exp) => {
-            if (t === 0) return {
-              w: initialWithdrawal,
-              note: '初始提領'
-            };
-            const prevReturn = mr[t - 1];
-            let nextW = histW[t - 1];
-            let note = '';
-            if (prevReturn >= 0) {
-              nextW *= 1 + inflation / 100;
-              note = '隨通膨增加';
-            } else {
-              note = '❄️凍結通膨';
-            }
-            const wr = nextW / nw * 100;
-            if (prevReturn < 0 && wr > initialWithdrawalRate * (1 + gkCapPreserveThresh / 100)) {
-              nextW *= 1 - gkCapPreserveCut / 100;
-              note += ' | 🔴保本刪減';
-            } else if (prevReturn > 0 && wr < initialWithdrawalRate * (1 - gkProsperityThresh / 100)) {
-              nextW *= 1 + gkProsperityHike / 100;
-              note = '🟢繁榮加薪';
-            }
-            return {
-              w: nextW,
-              note
-            };
-          });
-        }
-        const chartDataNW = [];
-        const chartDataW = [];
-        const chartDataSurv = [];
-        universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
-        const medianUniverse = universePerformances[Math.floor(simCount / 2)];
-        const medianUniverseIdx = medianUniverse.idx;
-
-        // 為了畫背景長條圖，重新提取這 1 個特定宇宙每一年的報酬率
-        // 注意：marketReturns 陣列是 [0 到 years-1]
-        const pathReturnsForChart = [];
-        let nwTemp = initialCapital;
-        let deadTemp = false;
-        for (let t = 0; t < years; t++) {
-          // 我們必須用同樣的 random 序列或是我們在上面直接把每次的 returns 存起來
-          // 為了效能，我們在上面 universePerformances 可以存
-        }
-        // 修正：直接從第一個跑回圈的地方，把所有的 marketReturns 存進 auditData[0...years] 時，
-        // 但那是第 0 個 universe。我們需要 P50 universe 的 marketReturn。
-        // 我們在上頭跑時，並未保留每個 universe 的逐年報酬率陣列以節省記憶體。
-        // 退而求其次：為了讓 P50 有背景長條圖，我們可以用淨值反推，或者再跑一次 RNG （固定 seed 不行，因為隨機數不同）。
-        // 這裡採用一個最準確的解法：直接把 universePerformances 存入 { idx, totalReturn, returns: [] }
-      }; // end runSimulation (由於要在原結構加回 returns，我直接在下面這版完整重建)
-
-      // 重建 runSimulation 以完美支援背景圖
       const runSimulationWithReturns = () => {
         seedRng(simSeed); // 可重現：同 simSeed → 同一組亂數路徑;按「重新模擬」會 simSeed+1 換一組
         const initialWithdrawal = initialCapital * (initialWithdrawalRate / 100);
+
+        // 市場模式：sim(你的假設;高斯或歷史抽樣) | hist(純歷史回測,多資產重疊實際窗)
+        const targetCagr = cagr / 100,
+          targetInfl = inflation / 100;
+        const useBootstrap = marketMode === 'sim' && riskEngine === 'bootstrap';
+        const blendForBoot = useBootstrap ? histBlendAB(stockRatio) : null;
+        const histWindows = marketMode === 'hist' ? histOverlappingWindows(histWeights, years) : null;
+        const M = histWindows ? Math.max(1, histWindows.length) : simCount; // 有效路徑數（歷史回測=可用世代數）
+
         const pathsNW = {
           baseline: [],
           vanguard: [],
@@ -1214,11 +1198,13 @@ const App = () => {
           dead: 0,
           ruinYears: [],
           finalNW: [],
+          finalNWReal: [],
           totalWithdrawn: [],
           allRealWithdrawn: [],
           survivorWithdrawn: [],
           survivorRealWithdrawn: [],
           survivorFinalNW: [],
+          survivorFinalNWReal: [],
           survivorDowngraded: 0,
           survivorYears: 0,
           survivorShortfall: [],
@@ -1232,31 +1218,46 @@ const App = () => {
         };
         const auditData = [];
         const universePerformances = [];
-        for (let i = 0; i < simCount; i++) {
+        for (let i = 0; i < M; i++) {
           const marketReturns = [];
           const inflFactors = [];
           let currentInflFactor = 1;
           let pathMarketReturn = 1;
 
-          // 先抽出整條路徑的報酬
-          const rawReturns = [];
-          for (let t = 0; t < years; t++) {
-            const Z = randn_bm();
-            let r = cagr / 100 + volatility / 100 * Z;
-            if (stressMode === 'crash' && t < 3) {
-              r = -0.15;
-            } // 崩盤情境：前三年釘 -15%(會壓低一生總報酬)
-            rawReturns.push(r);
+          // 先決定整條路徑的報酬與通膨（依市場模式）
+          let pathRets, pathInflRates;
+          if (histWindows) {
+            // Mode B：實際重疊窗（多資產定權重再平衡 → 混合報酬 = Σ w_i r_i）
+            pathRets = histWindows[i].rets;
+            pathInflRates = histWindows[i].infls;
+          } else if (useBootstrap) {
+            // Mode A：歷史抽樣（stationary block）+ 對數重置到你的目標報酬/通膨
+            const bp = histBootstrapPath(blendForBoot, years, targetCagr, targetInfl, BOOT_MEAN_BLOCK);
+            pathRets = bp.rets;
+            pathInflRates = bp.infls;
+          } else {
+            // 參數化高斯（原行為，完全不變）
+            const rawReturns = [];
+            for (let t = 0; t < years; t++) {
+              const Z = randn_bm();
+              let r = cagr / 100 + volatility / 100 * Z;
+              if (stressMode === 'crash' && t < 3) {
+                r = -0.15;
+              } // 崩盤情境：前三年釘 -15%
+              rawReturns.push(r);
+            }
+            // 純順序風險：同組報酬由低到高重排（最差年份前置），平均/波動/總報酬不變
+            if (stressMode === 'sequence') {
+              rawReturns.sort((a, b) => a - b);
+            }
+            pathRets = rawReturns;
+            pathInflRates = null; // 通膨為固定率
           }
-          // 純順序風險：同一組報酬由低到高重排（最差年份前置），平均/波動/總報酬完全不變，只改先後順序
-          if (stressMode === 'sequence') {
-            rawReturns.sort((a, b) => a - b);
-          }
           for (let t = 0; t < years; t++) {
-            const r = rawReturns[t];
+            const r = pathRets[t];
             marketReturns.push(r);
             pathMarketReturn *= 1 + r;
-            currentInflFactor *= 1 + inflation / 100;
+            currentInflFactor *= 1 + (pathInflRates ? pathInflRates[t] : inflation / 100);
             inflFactors.push(currentInflFactor);
             if (i === 0) {
               auditData.push({
@@ -1273,7 +1274,8 @@ const App = () => {
           universePerformances.push({
             idx: i,
             totalReturn: pathMarketReturn,
-            returns: marketReturns
+            returns: marketReturns,
+            inflFactors: inflFactors
           });
           const simulateStrategy = (stratId, logicFn) => {
             let nw = initialCapital;
@@ -1345,6 +1347,7 @@ const App = () => {
               totals[stratId].ruinYears.push(ruinYear);
             }
             totals[stratId].finalNW.push(nw);
+            totals[stratId].finalNWReal.push(inflFactors[years - 1] > 0 ? nw / inflFactors[years - 1] : nw); // 逐路徑：用該路徑實際累積通膨折現（歷史/bootstrap 各路徑不同）
             totals[stratId].totalWithdrawn.push(totW);
             totals[stratId].allRealWithdrawn.push(realTotal); // 全宇宙：含破產路徑（天生被存活率加權）
             pathsNW[stratId].push(pathNW);
@@ -1356,6 +1359,7 @@ const App = () => {
               totals[stratId].survivorWithdrawn.push(totW); // 名目（保留備用）
               totals[stratId].survivorRealWithdrawn.push(realTotal); // 實質
               totals[stratId].survivorFinalNW.push(nw); // 期末名目淨值（遺產）
+              totals[stratId].survivorFinalNWReal.push(inflFactors[years - 1] > 0 ? nw / inflFactors[years - 1] : nw); // 逐路徑實質遺產
               totals[stratId].survivorDowngraded += pathDowngraded;
               totals[stratId].survivorYears += years;
 
@@ -1415,7 +1419,8 @@ const App = () => {
 
             // 規則1+2 修正版提領法則（Modified WR, GK 2006 p.5）＋通膨法則（IR）
             // 僅在「前一年負報酬」且「調升後提領率仍高於初始率」時凍結；否則照通膨調升（不補）
-            const inflatedW = prevW * (1 + inflation / 100);
+            const infStep = t === 1 ? inf[0] : inf[t - 1] / inf[t - 2]; // 當年實際通膨（與基準法則同口徑；高斯下為固定率）
+            const inflatedW = prevW * infStep;
             const inflatedWR = inflatedW / nw * 100;
             if (prevReturn < 0 && inflatedWR > initialWithdrawalRate) {
               nextW = prevW;
@@ -1447,7 +1452,8 @@ const App = () => {
               w: initialWithdrawal,
               note: '初始提領'
             };
-            const anchor = histW[t - 1] * (1 + inflation / 100); // 去年支出×通膨
+            const infStep = t === 1 ? inf[0] : inf[t - 1] / inf[t - 2]; // 當年實際通膨（高斯下為固定率）
+            const anchor = histW[t - 1] * infStep; // 去年支出×當年實際通膨
             const target = nw * (initialWithdrawalRate / 100); // 當下資產×目標率
             const wgt = yaleWeight / 100;
             return {
@@ -1460,23 +1466,24 @@ const App = () => {
         const chartDataW = [];
         const chartDataSurv = [];
         universePerformances.sort((a, b) => a.totalReturn - b.totalReturn);
-        const medianUniverse = universePerformances[Math.floor(simCount / 2)];
+        const medianUniverse = universePerformances[Math.floor(M / 2)];
         const medianUniverseIdx = medianUniverse.idx;
         const medianReturns = medianUniverse.returns; // 取得 P50 宇宙的市場表現
+        const medianInfl = medianUniverse.inflFactors; // P50 宇宙的逐年累積通膨（微笑線折現用，歷史/bootstrap 非固定率）
 
-        survivals.baseline[0] = simCount;
-        survivals.vanguard[0] = simCount;
-        survivals.guyton[0] = simCount;
-        survivals.endowment[0] = simCount;
+        survivals.baseline[0] = M;
+        survivals.vanguard[0] = M;
+        survivals.guyton[0] = M;
+        survivals.endowment[0] = M;
 
         // 存活率：第 0~years 年（含起點 100%）
         for (let t = 0; t <= years; t++) {
           chartDataSurv.push({
             year: t,
-            baseline: survivals.baseline[t] / simCount * 100,
-            vanguard: survivals.vanguard[t] / simCount * 100,
-            guyton: survivals.guyton[t] / simCount * 100,
-            endowment: survivals.endowment[t] / simCount * 100
+            baseline: survivals.baseline[t] / M * 100,
+            vanguard: survivals.vanguard[t] / M * 100,
+            guyton: survivals.guyton[t] / M * 100,
+            endowment: survivals.endowment[t] / M * 100
           });
         }
 
@@ -1496,9 +1503,9 @@ const App = () => {
             wAtT[strat] = pathsW[strat][medianUniverseIdx][t - 1];
           });
 
-          // 微笑目標線（名目，與提領同單位）；通膨為固定率可直接算;未開啟時為 null → 不繪製
+          // 微笑目標線（名目，與提領同單位）；用中位路徑的實際累積通膨（高斯為固定率）;未開啟時 null → 不繪製
           const t0 = t - 1;
-          const inflF = Math.pow(1 + inflation / 100, t0);
+          const inflF = t0 === 0 ? 1 : medianInfl[t0 - 1];
           wAtT.smileLine = useSmile ? initialWithdrawal * inflF * smileFactor(retireAge + t0, retireAge, smileDepth) : null;
           chartDataNW.push(nwAtT);
           chartDataW.push(wAtT);
@@ -1511,22 +1518,21 @@ const App = () => {
           const allRealWs = totals[strat].allRealWithdrawn;
           const ruins = totals[strat].ruinYears;
           // 期望存活年 = 存活率曲線下的面積 = Σ_t 各年存活比例（t=1..years）
-          const expectedSurvivalYears = survivals[strat].slice(1).reduce((a, b) => a + b, 0) / simCount;
-          const sfn = totals[strat].survivorFinalNW.slice().sort((a, b) => a - b);
+          const expectedSurvivalYears = survivals[strat].slice(1).reduce((a, b) => a + b, 0) / M;
+          const sfnReal = totals[strat].survivorFinalNWReal.slice().sort((a, b) => a - b);
           const sf = totals[strat].survivorShortfall.slice().sort((a, b) => a - b);
-          const realDeflator = Math.pow(1 + inflation / 100, years); // 期末名目→今日購買力
-          // 期末資產倍數：納入「全部宇宙」（破產路徑期末=0），避免存活者偏誤；取中位與 P10–P90 可能範圍
-          const allFinal = totals[strat].finalNW.slice().sort((a, b) => a - b);
-          const fnMults = allFinal.map(nw => nw / realDeflator / initialCapital); // 已排序（除以正常數保序）
+          // 期末資產倍數：納入「全部宇宙」（破產路徑期末=0），避免存活者偏誤；每條路徑以自身實際累積通膨折現（歷史/bootstrap 各路徑不同）；取中位與 P10–P90
+          const allFinalReal = totals[strat].finalNWReal.slice().sort((a, b) => a - b);
+          const fnMults = allFinalReal.map(rv => rv / initialCapital); // 已排序（除以正常數保序）
           const fnPct = p => fnMults.length > 0 ? fnMults[Math.min(fnMults.length - 1, Math.floor(p * fnMults.length))] : 0;
           stats[strat] = {
             // 全宇宙視角
-            successRate: (simCount - totals[strat].dead) / simCount * 100,
+            successRate: (M - totals[strat].dead) / M * 100,
             expectedSurvivalYears: expectedSurvivalYears,
             // 破產評估：破產路徑平均撐到第幾年（0 = 無人破產）
             avgRuinYear: ruins.length > 0 ? ruins.reduce((a, b) => a + b, 0) / ruins.length : 0,
             // 全宇宙期望實質提領：含破產路徑，天生被存活率加權，可拿來公平排序策略
-            avgRealAllUniverse: allRealWs.length > 0 ? allRealWs.reduce((a, b) => a + b, 0) / simCount : 0,
+            avgRealAllUniverse: allRealWs.length > 0 ? allRealWs.reduce((a, b) => a + b, 0) / M : 0,
             // 以下三者皆為「存活者視角」：在順利走完全程的前提下
             avgRealWithdrawn: survCount > 0 ? survRealWs.reduce((a, b) => a + b, 0) / survCount : 0,
             qolRate: totals[strat].survivorYears > 0 ? 100 - totals[strat].survivorDowngraded / totals[strat].survivorYears * 100 : 0,
@@ -1534,7 +1540,7 @@ const App = () => {
             // 平均短少%：降級面積（低於首年購買力基準線下方）標準化後的中位數
             medianShortfall: sf.length > 0 ? sf[Math.floor(sf.length / 2)] : 0,
             // 期末實質淨值（中位，僅存活者）：遺產/安全邊際；過大可能代表生前花太少
-            medianRealFinalNW: sfn.length > 0 ? sfn[Math.floor(sfn.length / 2)] / realDeflator : 0,
+            medianRealFinalNW: sfnReal.length > 0 ? sfnReal[Math.floor(sfnReal.length / 2)] : 0,
             // 期末資產為初始的幾倍（全部宇宙，破產=0）：中位 + P10–P90 可能範圍
             finalMultMedian: fnMults.length > 0 ? fnMults[Math.floor(fnMults.length / 2)] : 0,
             finalMultP10: fnPct(0.10),
@@ -1547,7 +1553,10 @@ const App = () => {
           chartDataSurv,
           stats,
           auditData,
-          smileOn: useSmile
+          smileOn: useSmile,
+          effSimCount: M,
+          marketMode,
+          riskEngine
         };
       };
       const res = runSimulationWithReturns();
@@ -1555,7 +1564,7 @@ const App = () => {
       setIsSimulating(false);
     }, 50);
     return () => clearTimeout(timer);
-  }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode, usePlan, spendFloorPct, useSmile, retireAge, smileDepth]);
+  }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode, usePlan, spendFloorPct, useSmile, retireAge, smileDepth, marketMode, riskEngine, histWeights]);
   const renderChart = () => {
     if (!simResults) return null;
     let data = [];
@@ -1726,11 +1735,12 @@ const App = () => {
       className: "text-[10px] md:text-xs text-slate-500 mt-1"
     }, tr('抽出單一平行宇宙，觀察在同樣市場漲跌下的策略反應。', 'Pull a single parallel universe and watch how the strategies respond under the same market ups and downs.'))), /*#__PURE__*/React.createElement("button", {
       onClick: () => setSimSeed(s => s + 1),
-      className: "w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs md:text-sm font-bold transition-colors whitespace-nowrap shadow-sm"
+      disabled: simResults && simResults.marketMode === 'hist',
+      className: `w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-colors whitespace-nowrap shadow-sm text-white ${simResults && simResults.marketMode === 'hist' ? 'bg-slate-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`
     }, /*#__PURE__*/React.createElement(RefreshCw, {
       size: 14,
       className: isSimulating ? "animate-spin" : ""
-    }), " ", tr('重抽宇宙', 'Resample path'))), /*#__PURE__*/React.createElement("div", {
+    }), " ", simResults && simResults.marketMode === 'hist' ? tr('結果固定', 'Fixed') : tr('重抽宇宙', 'Resample path'))), /*#__PURE__*/React.createElement("div", {
       className: "p-3 md:p-4 border-b border-slate-100 shrink-0"
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-2 px-1"
@@ -1957,6 +1967,10 @@ const App = () => {
     guyton: simResults?.stats?.guyton?.medianCV || 0,
     endowment: simResults?.stats?.endowment?.medianCV || 0
   }];
+
+  // 顯示用：有效路徑數與是否為純歷史回測（歷史回測 N = 實際世代數，非 10,000）
+  const effN = simResults ? simResults.effSimCount : simCount;
+  const effIsHist = !!(simResults && simResults.marketMode === 'hist');
   return /*#__PURE__*/React.createElement("div", {
     className: "max-w-[1400px] mx-auto p-2 md:p-5 lg:p-6 pb-20"
   }, /*#__PURE__*/React.createElement("header", {
@@ -1967,7 +1981,7 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v6.5"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.2"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-indigo-400"
@@ -2017,6 +2031,41 @@ const App = () => {
   }, step))))))), /*#__PURE__*/React.createElement("div", {
     className: "mt-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm"
   }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs font-extrabold text-slate-700 mb-3 flex items-center gap-1.5 border-b border-slate-100 pb-2"
+  }, /*#__PURE__*/React.createElement(History, {
+    size: 14,
+    className: "text-indigo-500"
+  }), " ", tr('市場情境怎麼來？三種產生方式', 'How market scenarios are generated — three engines')), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bg-slate-50 rounded-lg p-3 border border-slate-100"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] font-extrabold text-slate-700 mb-1"
+  }, tr('① 常態分佈（你的假設 · 常態）', '① Gaussian (Your assumptions · Gaussian)')), /*#__PURE__*/React.createElement("p", {
+    className: "text-[10px] text-slate-600 leading-relaxed"
+  }, tr('用你設的「預期報酬」與「波動」，假設每年報酬服從常態（鐘形）分佈，隨機抽一萬條人生。鐘形是對稱的，會低估真實市場「崩盤跌得又深又突然」的負偏與厚尾。最適合用來看「某個參數的純效果」與做 A／B 對照。', 'Uses your expected return and volatility, assuming each year is drawn from a normal (bell) distribution, for 10,000 lives. The bell is symmetric, so it understates the real market\'s negative skew and fat tails (crashes are deep and sudden). Best for seeing one parameter\'s pure effect and A/B comparisons.'))), /*#__PURE__*/React.createElement("div", {
+    className: "bg-sky-50/50 rounded-lg p-3 border border-sky-100"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] font-extrabold text-sky-800 mb-1"
+  }, tr('② 歷史抽樣（你的假設 · 歷史抽樣）', '② Historical sampling (Your assumptions · sampling)')), /*#__PURE__*/React.createElement("p", {
+    className: "text-[10px] text-slate-600 leading-relaxed"
+  }, tr('不再假設鐘形，而是直接從美國 1928–2025 的真實年報酬「成塊」重抽（stationary block bootstrap：平均一塊約 7 年、頭尾相接），保留真實的厚尾、負偏與壞年連跌。再用對數平移，把整條路徑的長期平均「對齊」到你設定的報酬與通膨——你決定平均水準（level）、歷史決定形狀（shape）；波動由歷史決定。股／債混合用你的「股票比例」（股＝S&P500、債＝10 年期公債）。適合想保留真實市場形狀、但套用自己（全球／較保守）報酬假設的人。', 'Instead of a bell, it resamples actual US 1928–2025 annual returns in blocks (stationary block bootstrap: ~7-year blocks, wrapped end-to-end), keeping real fat tails, negative skew and multi-year drawdowns. A log-shift then aligns each path\'s long-run average to your return and inflation — you set the level, history sets the shape; volatility is history-driven. The stock/bond mix follows your equity %  (stocks = S&P 500, bonds = 10-yr Treasury). Best when you want a realistic shape but your own (global / conservative) return assumption.'))), /*#__PURE__*/React.createElement("div", {
+    className: "bg-indigo-50/50 rounded-lg p-3 border border-indigo-100"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] font-extrabold text-indigo-800 mb-1"
+  }, tr('③ 純歷史回測（多資產重疊窗）', '③ Historical backtest (multi-asset overlapping windows)')), /*#__PURE__*/React.createElement("p", {
+    className: "text-[10px] text-slate-600 leading-relaxed"
+  }, tr('完全用美國真實歷史：把你選的多資產權重，套到「每一個可能的歷史起點」開始的連續時段，每年再平衡回目標權重，每個起點＝一條人生。重疊窗讓世代數有限（非一萬條）；含 EAFE 自 1970、含黃金自 1972 起算，世代數會變少。報酬、波動、通膨全部來自歷史，你只設權重與年限。適合看「歷史上真的這樣配會怎樣」與最壞的起點世代。', 'Pure US history: your multi-asset weights are applied to every possible historical start window, rebalanced to target each year; each start = one life. Overlapping windows mean a limited cohort count (not 10,000); including EAFE starts from 1970 and gold from 1972, shrinking the count. Returns, volatility and inflation all come from history; you only set weights and horizon. Best for seeing how an allocation actually fared, and the worst starting cohorts.')))), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] font-extrabold text-slate-500 mt-3 mb-1.5 flex items-center gap-1.5"
+  }, /*#__PURE__*/React.createElement(FileSearch, {
+    size: 12
+  }), " ", tr('資料來源（皆經逐列／交叉驗證後內建）', 'Data sources (each cross-verified before embedding)')), /*#__PURE__*/React.createElement("ul", {
+    className: "text-[10px] text-slate-500 space-y-1 leading-relaxed list-disc pl-4"
+  }, /*#__PURE__*/React.createElement("li", null, tr('美股大型／小型、票券、10 年期公債、Baa 公司債、不動產、黃金 年度含息總報酬：Damodaran（NYU Stern），1928–2025', 'US large/small cap, bills, 10-yr Treasury, Baa corporate, real estate, gold annual total returns: Damodaran (NYU Stern), 1928–2025')), /*#__PURE__*/React.createElement("li", null, tr('已開發除美（EAFE）含息總報酬（美元）：MSCI EAFE，1970–2025（以價格報酬獨立交叉驗證）', 'Developed ex-US (EAFE) total return (USD): MSCI EAFE, 1970–2025 (cross-checked against price returns)')), /*#__PURE__*/React.createElement("li", null, tr('通膨（CPI-U 年均）：Minneapolis Fed，1928–2025', 'Inflation (CPI-U annual avg): Minneapolis Fed, 1928–2025'))), /*#__PURE__*/React.createElement("p", {
+    className: "text-[9px] text-slate-400 mt-2 leading-relaxed"
+  }, tr('驗證方式：每列以「累積值回算年報酬」逐格核對、抽查基準年、檢查長期幾何均值是否吻合公認數字；EAFE 另以獨立來源的價格報酬交叉比對（差額＝合理股息率）。', 'Verification: each row checked cell-by-cell via cumulative-vs-return, spot-checked against benchmark years, and long-run geometric means matched to known figures; EAFE additionally cross-checked against an independent price-return series (the gap equals a plausible dividend yield).'))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "text-[10px] font-extrabold text-slate-500 mb-2 flex items-center gap-1.5"
   }, /*#__PURE__*/React.createElement(BookOpen, {
     size: 12
@@ -2043,11 +2092,12 @@ const App = () => {
     className: "text-[9px] md:text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700"
   }, tr('參數即時更新', 'Live recompute'))), /*#__PURE__*/React.createElement("button", {
     onClick: () => setSimSeed(s => s + 1),
-    className: "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
+    disabled: simResults && simResults.marketMode === 'hist',
+    className: `w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm text-white ${simResults && simResults.marketMode === 'hist' ? 'bg-slate-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`
   }, /*#__PURE__*/React.createElement(RefreshCw, {
     size: 16,
     className: isSimulating ? 'animate-spin' : ''
-  }), " ", tr('重新模擬一萬次', 'Re-run 10,000'))), /*#__PURE__*/React.createElement("div", {
+  }), " ", simResults && simResults.marketMode === 'hist' ? tr('歷史回測·結果固定', 'Backtest · fixed') : tr('重新模擬一萬次', 'Re-run 10,000'))), /*#__PURE__*/React.createElement("div", {
     className: "bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "font-extrabold text-slate-800 mb-3 flex items-center gap-1 border-b border-slate-100 pb-2 text-sm md:text-base"
@@ -2081,6 +2131,53 @@ const App = () => {
   }, /*#__PURE__*/React.createElement(PieChart, {
     className: "w-4 h-4 text-indigo-500"
   }), " ", tr('資產配置與市場環境', 'Allocation & market')), /*#__PURE__*/React.createElement("div", {
+    className: "mb-4 -mt-1"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-1.5 mb-2"
+  }, [{
+    id: 'sim',
+    label: tr('你的假設', 'Your assumptions'),
+    desc: tr('你設定報酬·蒙地卡羅', 'You set returns · Monte Carlo')
+  }, {
+    id: 'hist',
+    label: tr('純歷史回測', 'Historical backtest'),
+    desc: tr('美國實際歷史·多資產', 'Actual US history · multi-asset')
+  }].map(m => /*#__PURE__*/React.createElement("button", {
+    key: m.id,
+    onClick: () => setMarketMode(m.id),
+    className: `flex flex-col items-start px-2.5 py-2 rounded-lg border text-left transition-all ${marketMode === m.id ? 'border-indigo-400 bg-indigo-50 shadow-sm' : 'border-slate-200 bg-white opacity-60 hover:opacity-100'}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `text-xs font-extrabold flex items-center gap-1 ${marketMode === m.id ? 'text-indigo-700' : 'text-slate-600'}`
+  }, m.id === 'hist' && /*#__PURE__*/React.createElement(History, {
+    size: 12
+  }), m.label), /*#__PURE__*/React.createElement("span", {
+    className: "text-[9px] text-slate-400 leading-tight mt-0.5"
+  }, m.desc)))), marketMode === 'sim' && /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 pl-1"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] font-bold text-slate-500 shrink-0"
+  }, tr('風險引擎', 'Risk engine')), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-1 flex-1"
+  }, [{
+    id: 'gaussian',
+    label: tr('常態分佈', 'Gaussian')
+  }, {
+    id: 'bootstrap',
+    label: tr('歷史抽樣', 'Historical sampling')
+  }].map(e => /*#__PURE__*/React.createElement("button", {
+    key: e.id,
+    onClick: () => setRiskEngine(e.id),
+    className: `px-2 py-1 rounded-md border text-[10px] font-bold transition-all ${riskEngine === e.id ? 'border-sky-400 bg-sky-50 text-sky-700 shadow-sm' : 'border-slate-200 bg-white text-slate-500 opacity-70 hover:opacity-100'}`
+  }, e.label))), /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-72",
+    align: "right",
+    size: 13
+  }, tr('常態分佈＝照你設的報酬與波動，隨機抽路徑。歷史抽樣＝改用美國真實年報酬重抽，保留崩盤的厚尾與壞年連跌，但長期平均仍對齊你設定的報酬（波動改由歷史決定）。完整原理與資料來源見上方「展開策略計算原理」。', 'Gaussian = random paths from your return and volatility. Historical sampling = resamples actual US annual returns, keeping crash fat tails and bad-year clustering, but the long-run average still matches your set return (volatility becomes history-driven). Full mechanics and data sources are under "Show strategy formulas" above.'))), marketMode === 'hist' && /*#__PURE__*/React.createElement("p", {
+    className: "text-[9px] text-slate-500 leading-relaxed pl-1 flex items-start gap-1"
+  }, /*#__PURE__*/React.createElement(Info, {
+    size: 12,
+    className: "text-indigo-400 mt-0.5 shrink-0"
+  }), /*#__PURE__*/React.createElement("span", null, tr('用美國各資產 1928–2025 的真實年報酬，跑所有「重疊的實際歷史時段」（每年再平衡回目標權重）。報酬、波動、通膨全部來自歷史，你只設定資產權重與年限。', 'Uses actual US per-asset annual returns 1928–2025, running every overlapping real historical window (rebalanced to target weights each year). Returns, volatility and inflation all come from history; you only set asset weights and horizon.')))), marketMode === 'sim' && /*#__PURE__*/React.createElement("div", {
     className: "mb-4"
   }, /*#__PURE__*/React.createElement(InputSlider, {
     label: tr('退休時股票比例', 'Equity % at retirement'),
@@ -2091,10 +2188,58 @@ const App = () => {
     step: 10,
     suffix: "%",
     color: "emerald",
-    info: tr('這是「退休後／提領期間」的股票比例，不是累積期。會自動連動預期報酬與波動率（全球股／美債長期模型）。比例越高長期報酬越高、但報酬順序風險也越大。', 'Equity % during retirement/withdrawal, not accumulation. It auto-links expected return and volatility (long-term global-equity / US-bond model). Higher % means higher long-term return but greater sequence-of-returns risk.')
+    info: tr('這是「退休後／提領期間」的股票比例，不是累積期。常態分佈下自動連動報酬與波動；歷史抽樣下決定股/債混合的「形狀」（報酬仍重置到你的設定）。', 'Equity % during retirement/withdrawal, not accumulation. Under Gaussian it auto-links return and volatility; under historical sampling it sets the stock/bond blend shape (level still re-centered to your setting).')
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex justify-between px-2 mt-1 text-[10px] text-slate-400 font-medium"
-  }, /*#__PURE__*/React.createElement("span", null, tr('保守（多債）', 'Conservative (bonds)')), /*#__PURE__*/React.createElement("span", null, tr('積極（多股）', 'Aggressive (equity)')))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, tr('保守（多債）', 'Conservative (bonds)')), /*#__PURE__*/React.createElement("span", null, tr('積極（多股）', 'Aggressive (equity)')))), marketMode === 'hist' && /*#__PURE__*/React.createElement("div", {
+    className: "mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-xs font-bold text-slate-700 flex items-center gap-1"
+  }, /*#__PURE__*/React.createElement(Layers, {
+    size: 13,
+    className: "text-indigo-500"
+  }), tr('資產權重（每年再平衡）', 'Asset weights (rebalanced yearly)')), /*#__PURE__*/React.createElement("span", {
+    className: `text-[10px] font-bold px-1.5 py-0.5 rounded ${histWeightSumPct === 100 ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`
+  }, tr('合計 ', 'Σ '), histWeightSumPct, "%")), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-1.5"
+  }, HIST_ASSETS.map(a => {
+    const pct = Math.round((histWeights[a.key] || 0) * 100);
+    return /*#__PURE__*/React.createElement("div", {
+      key: a.key,
+      className: `flex items-center justify-between gap-1 px-2 py-1.5 rounded-lg border ${pct > 0 ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50/50 opacity-70'}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "flex items-center gap-1 min-w-0"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "w-2 h-2 rounded-full shrink-0",
+      style: {
+        background: a.color
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] font-bold text-slate-600 truncate"
+    }, lang === 'en' ? a.en : a.zh)), /*#__PURE__*/React.createElement("span", {
+      className: "flex items-center bg-slate-50 rounded border border-slate-200 px-1 shrink-0"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      min: 0,
+      max: 100,
+      step: 5,
+      value: pct,
+      onChange: e => setHistWeight(a.key, Math.max(0, Math.min(100, Number(e.target.value) || 0))),
+      className: "w-8 text-[11px] font-mono text-right bg-transparent outline-none font-bold text-slate-700 appearance-none"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "text-[9px] text-slate-400"
+    }, "%")));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mt-2 px-1"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[9px] text-slate-400"
+  }, tr('資料自 ', 'Data from '), histStartYear(histWeights), tr(' 年起算', '')), /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] font-bold text-indigo-600"
+  }, tr('可用 ', ''), histWindowCount(histWeights, years), tr(' 個歷史世代', ' cohorts'))), /*#__PURE__*/React.createElement("p", {
+    className: "text-[9px] text-slate-400 mt-1.5 leading-relaxed"
+  }, tr('權重自動正規化為比例（不必剛好 100%）。每個歷史起點＝一條人生；重疊窗使世代數有限（非一萬條），存活率以實際世代比例計。', 'Weights auto-normalize (need not sum to 100%). Each historical start = one life; overlapping windows give a limited cohort count (not 10,000); survival is the share of actual cohorts.'))), /*#__PURE__*/React.createElement("div", {
     className: `grid ${lang === 'en' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2'} gap-2 md:gap-3 mb-4`
   }, /*#__PURE__*/React.createElement(InputSlider, {
     label: tr('預期年化報酬', 'Expected annual return'),
@@ -2103,7 +2248,9 @@ const App = () => {
     min: 0,
     max: 15,
     step: 0.1,
-    suffix: "%"
+    suffix: "%",
+    disabled: marketMode === 'hist',
+    disabledNote: tr('歷史決定', 'from history')
   }), /*#__PURE__*/React.createElement(InputSlider, {
     label: tr('投資組合波動', 'Portfolio volatility'),
     value: volatility,
@@ -2111,7 +2258,9 @@ const App = () => {
     min: 0,
     max: 30,
     step: 0.1,
-    suffix: "%"
+    suffix: "%",
+    disabled: marketMode === 'hist' || riskEngine === 'bootstrap',
+    disabledNote: tr('歷史決定', 'from history')
   })), /*#__PURE__*/React.createElement("div", {
     className: `grid ${lang === 'en' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2'} gap-2 md:gap-3 mb-4`
   }, /*#__PURE__*/React.createElement(InputSlider, {
@@ -2121,7 +2270,9 @@ const App = () => {
     min: 0,
     max: 10,
     step: 0.5,
-    suffix: "%"
+    suffix: "%",
+    disabled: marketMode === 'hist',
+    disabledNote: tr('歷史決定', 'from history')
   }), /*#__PURE__*/React.createElement(InputSlider, {
     label: tr('模擬年限', 'Years simulated'),
     value: years,
@@ -2130,7 +2281,7 @@ const App = () => {
     max: 50,
     step: 5,
     suffix: tr('年', 'yrs')
-  })), /*#__PURE__*/React.createElement("div", {
+  })), marketMode === 'sim' && riskEngine === 'gaussian' ? /*#__PURE__*/React.createElement("div", {
     className: "pt-4 border-t border-slate-100"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col mb-2"
@@ -2165,7 +2316,14 @@ const App = () => {
     className: "text-[9px] text-slate-400 leading-tight mt-0.5"
   }, m.desc)))), /*#__PURE__*/React.createElement("p", {
     className: "text-[9px] text-slate-400 mt-2 leading-relaxed"
-  }, tr('崩盤情境＝同時壓低一生總報酬的衝擊；', 'Crash = a shock that lowers lifetime total return at the same time;'), /*#__PURE__*/React.createElement("br", null), tr('純順序風險＝保持報酬／波動／總報酬不變、只把壞年份排到最前，單獨隔離「順序」效果。', 'Sequence risk = keeps return / volatility / total return unchanged and only moves the worst years to the front, isolating the ordering effect alone.')))), /*#__PURE__*/React.createElement("div", {
+  }, tr('崩盤情境＝同時壓低一生總報酬的衝擊；', 'Crash = a shock that lowers lifetime total return at the same time;'), /*#__PURE__*/React.createElement("br", null), tr('純順序風險＝保持報酬／波動／總報酬不變、只把壞年份排到最前，單獨隔離「順序」效果。', 'Sequence risk = keeps return / volatility / total return unchanged and only moves the worst years to the front, isolating the ordering effect alone.'))) : /*#__PURE__*/React.createElement("div", {
+    className: "pt-4 border-t border-slate-100"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-[10px] text-slate-400 flex items-start gap-1 leading-relaxed"
+  }, /*#__PURE__*/React.createElement(Info, {
+    size: 12,
+    className: "text-slate-300 mt-0.5 shrink-0"
+  }), tr('壓力測試（崩盤／順序風險）僅適用「常態分佈」引擎；歷史抽樣與純歷史回測本身已內含真實的壞年份與其先後順序。', 'Stress tests (crash / sequence) apply only to the Gaussian engine; historical sampling and backtest already embed real bad years and their ordering.')))), /*#__PURE__*/React.createElement("div", {
     className: "bg-white p-4 md:p-5 rounded-xl shadow-sm border border-slate-200"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base"
@@ -2454,7 +2612,7 @@ const App = () => {
   }), " ", tr('期末累積資產（初始的幾倍）', 'Final assets (× initial)'), /*#__PURE__*/React.createElement(InfoPopover, {
     w: "w-64",
     size: 13
-  }, tr(`第 ${years} 年走完時，帳戶剩餘淨值是退休初始資產的幾倍（已折回今日購買力）。全部 ${simCount.toLocaleString()} 次模擬一起算、破產宇宙以 0 計入（避免存活者偏誤）。倍數高 = 遺產／安全邊際厚，但也可能代表生前花得太保守。`, `After year ${years}, how many × the initial capital remains in the account (discounted to today). Computed across all ${simCount.toLocaleString()} simulations, with ruined universes counted as 0 (avoids survivorship bias). A high multiple = thick legacy / safety margin, but may also mean you spent too conservatively while alive.`))), /*#__PURE__*/React.createElement("span", {
+  }, tr(`第 ${years} 年走完時，帳戶剩餘淨值是退休初始資產的幾倍（已折回今日購買力）。全部 ${effN.toLocaleString()} ${effIsHist ? '個歷史世代' : '次模擬'}一起算、破產宇宙以 0 計入（避免存活者偏誤）。倍數高 = 遺產／安全邊際厚，但也可能代表生前花得太保守。`, `After year ${years}, how many × the initial capital remains in the account (discounted to today). Computed across all ${effN.toLocaleString()} ${effIsHist ? 'historical cohorts' : 'simulations'}, with ruined universes counted as 0 (avoids survivorship bias). A high multiple = thick legacy / safety margin, but may also mean you spent too conservatively while alive.`))), /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded"
   }, tr('全部宇宙 · 今日購買力', 'All universes · today value'))), /*#__PURE__*/React.createElement("div", {
     className: "p-4 md:p-5"
@@ -2603,7 +2761,7 @@ const App = () => {
     className: "font-extrabold text-slate-800 text-sm md:text-base"
   }, tr('壓力測試結算報告', 'Stress-test summary')), /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded"
-  }, tr(`第 ${years} 年 | 模擬 ${simCount} 次`, `Yr ${years} | ${simCount} sims`))), /*#__PURE__*/React.createElement("div", {
+  }, tr(`第 ${years} 年 | ${effIsHist ? effN + ' 個歷史世代' : '模擬 ' + effN.toLocaleString() + ' 次'}`, `Yr ${years} | ${effN.toLocaleString()} ${effIsHist ? 'cohorts' : 'sims'}`))), /*#__PURE__*/React.createElement("div", {
     className: "p-4 md:p-5 border-b border-slate-100 bg-white"
   }, /*#__PURE__*/React.createElement("h4", {
     className: "text-sm font-bold text-slate-700 mb-1"
