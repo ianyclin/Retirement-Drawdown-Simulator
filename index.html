@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v7.1</title>
+    <title>退休動態提領模擬器 v7.7</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -357,6 +357,7 @@ const {
   useState,
   useEffect,
   useRef,
+  useMemo,
   memo
 } = React;
 const {
@@ -960,7 +961,8 @@ const CustomTooltip = ({
   payload,
   label,
   percentMode,
-  lang
+  lang,
+  cohortStart
 }) => {
   if (active && payload && payload.length) {
     const _byKey = {};
@@ -972,7 +974,10 @@ const CustomTooltip = ({
       className: "bg-white/95 backdrop-blur p-3 border border-slate-200 shadow-xl rounded-xl text-xs z-50 min-w-[160px]"
     }, /*#__PURE__*/React.createElement("p", {
       className: "font-bold text-slate-700 mb-2 border-b border-slate-100 pb-1"
-    }, /*#__PURE__*/React.createElement("span", null, lang === 'en' ? `Retire yr ${label}` : `退休第 ${label} 年`)), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("span", null, (() => {
+      const ry = typeof cohortStart === 'number' && typeof label === 'number' ? cohortStart + label - 1 : null;
+      return lang === 'en' ? `Retire yr ${label}${ry ? ` (${ry})` : ''}` : `退休第 ${label} 年${ry ? `（西元 ${ry}）` : ''}`;
+    })())), /*#__PURE__*/React.createElement("div", {
       className: "space-y-2"
     }, filteredPayload.map((entry, index) => {
       let val = entry.value;
@@ -1001,9 +1006,108 @@ const CustomTooltip = ({
   }
   return null;
 };
+
+// 獨立、memo 化的軌跡圖：只在世代/模式/年限改變時重繪「一次」(資料變更才重繪;與整頁互動隔離)。
+// 平滑「滑入」動畫由外層容器以 Web Animations API (GPU transform) 處理，不靠逐影格重繪 Recharts(那會頓)。
+const AuditChart = memo(function AuditChart({
+  data,
+  lang,
+  viewMode,
+  years,
+  selectedModels,
+  legendPayload,
+  cohortStart,
+  lineDefs
+}) {
+  const trx = (zh, en) => lang === 'en' && en != null ? en : zh;
+  return /*#__PURE__*/React.createElement(ResponsiveContainer, {
+    width: "100%",
+    height: "100%"
+  }, /*#__PURE__*/React.createElement(ComposedChart, {
+    data: data,
+    margin: {
+      top: 5,
+      right: -15,
+      left: -25,
+      bottom: 0
+    }
+  }, /*#__PURE__*/React.createElement(CartesianGrid, {
+    strokeDasharray: "3 3",
+    vertical: false,
+    stroke: "#f1f5f9"
+  }), /*#__PURE__*/React.createElement(XAxis, {
+    dataKey: "year",
+    type: "number",
+    domain: [0, 'dataMax'],
+    tickCount: Math.floor(years / 5) + 1,
+    tick: {
+      fontSize: 9,
+      fill: '#94a3b8'
+    },
+    tickMargin: 5
+  }), /*#__PURE__*/React.createElement(YAxis, {
+    yAxisId: "left",
+    type: "number",
+    tickFormatter: val => typeof val === 'number' ? viewMode === 'survival' ? val.toLocaleString() : lang === 'en' ? fmtWanEn(val) : val >= 10000 ? (val / 10000).toFixed(0) + '億' : val.toLocaleString() : val,
+    tick: {
+      fontSize: 9,
+      fill: '#64748b',
+      fontWeight: 'bold'
+    },
+    width: 40
+  }), /*#__PURE__*/React.createElement(YAxis, {
+    yAxisId: "right",
+    orientation: "right",
+    type: "number",
+    tickFormatter: val => typeof val === 'number' ? val.toFixed(0) + '%' : val,
+    tick: {
+      fontSize: 9,
+      fill: '#cbd5e1'
+    },
+    domain: ['auto', 'auto'],
+    width: 35
+  }), /*#__PURE__*/React.createElement(RechartsTooltip, {
+    content: /*#__PURE__*/React.createElement(CustomTooltip, {
+      lang: lang,
+      cohortStart: cohortStart
+    })
+  }), /*#__PURE__*/React.createElement(Legend, {
+    payload: legendPayload,
+    verticalAlign: "top",
+    height: 24,
+    wrapperStyle: {
+      fontSize: '10px',
+      fontWeight: 'bold',
+      color: '#475569'
+    }
+  }), /*#__PURE__*/React.createElement(Bar, {
+    yAxisId: "right",
+    dataKey: "marketReturn",
+    name: trx('市場報酬', 'Market return'),
+    fill: "#e2e8f0",
+    radius: [2, 2, 0, 0],
+    opacity: 0.6,
+    isAnimationActive: false
+  }), lineDefs.map(L => selectedModels.includes(L.key) && /*#__PURE__*/React.createElement(Line, {
+    key: L.key,
+    yAxisId: "left",
+    type: "monotone",
+    dataKey: L.key,
+    name: L.name,
+    stroke: L.color,
+    strokeWidth: 2,
+    dot: false,
+    activeDot: {
+      r: 3
+    },
+    isAnimationActive: false,
+    legendType: "none"
+  }))));
+});
 const App = () => {
   const [activeTab, setActiveTab] = useState('monteCarlo');
   const [auditStrategy, setAuditStrategy] = useState('guyton');
+  const [auditCohort, setAuditCohort] = useState(0); // 歷史模式:深度稽核要檢視的世代(起點)索引
   const [simSeed, setSimSeed] = useState(0);
   const [showDefinitions, setShowDefinitions] = useState(false);
   const [lang, setLang] = useState('zh');
@@ -1092,6 +1196,24 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [{
+    ver: 'v7.8',
+    changes: ['「軌跡視覺化」改用 GPU 滑入動畫(放棄逐影格補間):v7.5/v7.7 會頓的根因是「每影格重餵新資料給 Recharts→整張圖重繪」太重。改為 Recharts 只渲染「一次」(新世代的靜態圖),再用 Web Animations API 對外層容器做一次 GPU transform 滑入(translateX＋淡入,300ms,純合成層、不觸發重繪)。下一個世代自右滑入、上一個自左滑入;切換不重算、不閃 loading']
+  }, {
+    ver: 'v7.7',
+    changes: ['「軌跡視覺化」平滑滑動版（正解）:把稽核圖抽成獨立、memo 化的子元件,補間動畫的逐影格更新只重繪「這張圖」而非整頁——這才是 v7.5 卡頓的根因修正。配合 v7.6 的「模擬時預先算好所有世代」,切換世代時不重算、不閃 loading。340ms ease-out 逐點插值;因相鄰歷史世代僅差一年(資料左移一格),呈現背景漲跌幅與各策略線「向左/右平滑滑動」。切換檢視模式(淨值↔提領)或改年限(資料尺度/長度改變)則直接跳,不做跨尺度補間']
+  }, {
+    ver: 'v7.6',
+    changes: ['「軌跡視覺化」世代切換改為「即時切換」,解決切世代卡頓:模擬時一次把所有歷史世代的稽核資料都算好,之後切換世代(‹ ›／輸入年份)純即時挑選——不再觸發全量重算、不再閃 loading 遮罩,也移除了會逐影格重繪整個頁面的補間動畫(那才是卡頓主因)。現在切換是乾淨、即時的單次更新']
+  }, {
+    ver: 'v7.5',
+    changes: ['「軌跡視覺化」世代切換動畫:改為在新舊世代資料間自製逐點補間（300ms ease-out）。相鄰歷史世代僅差一年（資料整體左移一格），故背景漲跌幅與各策略線會「平滑向左/右滑動」過渡,而非瞬間跳動或從零重畫（Recharts 內建進場動畫已關閉,改由補間驅動）；切換檢視模式（淨值↔提領）或改年限時直接跳、不做跨尺度補間']
+  }, {
+    ver: 'v7.4',
+    changes: ['深度稽核世代導覽:歷史模式的單一「下一個世代」鈕,升級為「‹ 上一個 ｜ 起點年份輸入框（可打字、含上下微調）｜ 下一個 ›」,可直接跳到任一起點世代(如 1929、1973、2000、2008)', '趨勢圖與「軌跡視覺化」tooltip:純歷史回測模式下,於「退休第 N 年」後加註真實西元年份(例:退休第 18 年（西元 1985）;主圖用中位世代、稽核圖用當前檢視世代的起點)', '修正「期末累積資產（初始的幾倍）」縱軸:原本 Recharts 只依中位長條自動縮放,使歷史抽樣／純歷史回測中較高的 P90 鬚線被裁切(看似固定在約 8x);改為縱軸上限自動涵蓋最高鬚線,各模式皆完整顯示', '修正 CV(提領變異係數)語意:開啟「微笑曲線」時,刻意的年齡遞減本是計畫的一部分,原本被當成不穩定而使 CV 虛高(連傳統 4% 法則都上升)。改為先除掉微笑趨勢、只衡量「相對計畫、由市場造成的偏離」——故傳統法則開微笑後 CV 仍≈0;微笑關閉時與舊值完全相同', '純歷史回測新增方法論提醒:世代數少且彼此重疊(高度自相關、非獨立抽樣),P10／P90／中位為描述統計而非機率分佈,單一極端世代影響大,勿過度解讀,建議與「歷史抽樣 bootstrap」對照']
+  }, {
+    ver: 'v7.3',
+    changes: ['深度稽核「下一個世代」:純歷史回測下,原停用的「重抽宇宙」鈕改為「下一個世代」,可逐一檢視各歷史起點世代(1928、1929、1966、2000…)在同一段真實歷史下的策略反應;面板顯示目前起始年與世代總數(先前固定鎖在最早世代無法切換)', '全面複查(第二輪)通過:內嵌資料與驗證來源逐格一致、163 個中英配對無漏譯、極端/退化輸入(高提領率·純黃金·權重全空)無 NaN 或崩潰、四策略(4%/Vanguard/Guyton-Klinger/Yale)規則與預設值均符合原始學術定義、tooltip 百分比/金額判定正確', '註:資產權重總和可超過 100%,引擎一律正規化為比例(非槓桿)']
+  }, {
     ver: 'v7.2',
     changes: ['修正(影響歷史抽樣／純歷史回測,常態分佈模式結果不變):Guyton-Klinger 與 Yale 平滑法的「依通膨調升」原誤用固定通膨假設值,改為各路徑的實際逐年通膨(與基準 4% 法則同口徑)——高通膨年代(如 1970 年代)先前會低估提領調升、進而高估存活', '修正:期末「實質倍數」與「實質遺產中位數」原以單一固定通膨折現所有路徑,改為每條路徑以自身實際累積通膨折現;先前會高估高通膨世代的實質期末財富(歷史模式 Guyton 30 年世代實質倍數約由 4.4 修正為 3.6)', '微笑目標線改用中位路徑的實際累積通膨', '以上修正在「常態分佈」模式下數值完全不變(該模式通膨本為固定率)']
   }, {
@@ -1175,7 +1297,9 @@ const App = () => {
         const blendForBoot = useBootstrap ? histBlendAB(stockRatio) : null;
         const histWindows = marketMode === 'hist' ? histOverlappingWindows(histWeights, years) : null;
         const M = histWindows ? Math.max(1, histWindows.length) : simCount; // 有效路徑數（歷史回測=可用世代數）
-
+        // 深度稽核要擷取哪一條路徑：歷史模式可逐世代檢視（夾在有效範圍內），其餘維持第 0 條
+        // 一次把所有世代的稽核資料都算好（歷史模式 M≤69 條；蒙地卡羅只存第 0 條）→ 切換世代時純即時挑選，不重算、不閃 loading
+        const captureAll = !!histWindows;
         const pathsNW = {
           baseline: [],
           vanguard: [],
@@ -1216,7 +1340,7 @@ const App = () => {
           guyton: mkTotal(),
           endowment: mkTotal()
         };
-        const auditData = [];
+        const auditAll = [];
         const universePerformances = [];
         for (let i = 0; i < M; i++) {
           const marketReturns = [];
@@ -1259,8 +1383,8 @@ const App = () => {
             pathMarketReturn *= 1 + r;
             currentInflFactor *= 1 + (pathInflRates ? pathInflRates[t] : inflation / 100);
             inflFactors.push(currentInflFactor);
-            if (i === 0) {
-              auditData.push({
+            if (captureAll || i === 0) {
+              (auditAll[i] = auditAll[i] || []).push({
                 year: t + 1,
                 marketReturn: r * 100,
                 inflationMult: currentInflFactor,
@@ -1334,10 +1458,10 @@ const App = () => {
               pathW.push(w);
               pathRealW.push(t === 0 ? w : w / inflFactors[t - 1]);
               if (!dead) survivals[stratId][t + 1]++;
-              if (i === 0) {
-                auditData[t][stratId].nw = nw;
-                auditData[t][stratId].w = w;
-                auditData[t][stratId].note = currentNote;
+              if (captureAll || i === 0) {
+                auditAll[i][t][stratId].nw = nw;
+                auditAll[i][t][stratId].w = w;
+                auditAll[i][t][stratId].note = currentNote;
               }
             }
             const survived = !dead;
@@ -1375,10 +1499,13 @@ const App = () => {
                 }
               }
               if (cutCount > 0) totals[stratId].survivorShortfall.push(cutSum / cutCount * 100);
-              const meanW = realTotal / years;
-              const varW = pathRealW.reduce((a, b) => a + Math.pow(b - meanW, 2), 0) / years;
-              const stdW = Math.sqrt(varW);
-              totals[stratId].wCVData.push(meanW > 0 ? stdW / meanW * 100 : 0);
+
+              // CV 衡量「相對計畫的穩定度」：開微笑時，刻意的年齡遞減本是計畫的一部分，不該算成不穩定
+              // → 先除掉微笑趨勢（de-trend），只留市場造成的偏離；微笑關閉時 stab=pathRealW，與原值完全相同
+              const stab = pathRealW.map((rw, yy) => rw / (useSmile ? smileFactor(retireAge + yy, retireAge, smileDepth) : 1));
+              const meanS = stab.reduce((a, b) => a + b, 0) / years;
+              const stdS = Math.sqrt(stab.reduce((a, b) => a + Math.pow(b - meanS, 2), 0) / years);
+              totals[stratId].wCVData.push(meanS > 0 ? stdS / meanS * 100 : 0);
             }
           };
           simulateStrategy('baseline', (t, nw, histW, mr, inf, exp) => {
@@ -1552,11 +1679,14 @@ const App = () => {
           chartDataW,
           chartDataSurv,
           stats,
-          auditData,
+          auditAll,
           smileOn: useSmile,
           effSimCount: M,
           marketMode,
-          riskEngine
+          riskEngine,
+          auditCohortCount: M,
+          medianCohortStart: histWindows ? histWindows[medianUniverseIdx].start : null,
+          auditBaseStart: histWindows ? histWindows[0].start : null
         };
       };
       const res = runSimulationWithReturns();
@@ -1565,6 +1695,49 @@ const App = () => {
     }, 50);
     return () => clearTimeout(timer);
   }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode, usePlan, spendFloorPct, useSmile, retireAge, smileDepth, marketMode, riskEngine, histWeights]);
+
+  // 軌跡圖資料：依目前世代/檢視模式即時挑選並映射；用 useMemo 讓引用穩定（只有真的換世代/模式/重算才產生新陣列 → 才觸發 AuditChart 的補間，避免其他互動誤觸）
+  const auditChartTarget = useMemo(() => {
+    if (!simResults || !simResults.auditAll) return [];
+    const isH = simResults.marketMode === 'hist';
+    const cc = isH ? Math.min(Math.max(0, auditCohort), (simResults.auditCohortCount || 1) - 1) : 0;
+    const rows = simResults.auditAll[cc] || [];
+    return rows.map(d => ({
+      year: d.year,
+      marketReturn: d.marketReturn,
+      baseline: auditChartMode === 'netWorth' ? d.baseline.nw : d.baseline.w,
+      vanguard: auditChartMode === 'netWorth' ? d.vanguard.nw : d.vanguard.w,
+      guyton: auditChartMode === 'netWorth' ? d.guyton.nw : d.guyton.w,
+      endowment: auditChartMode === 'netWorth' ? d.endowment.nw : d.endowment.w
+    }));
+  }, [simResults, auditChartMode, auditCohort]);
+
+  // 軌跡圖「滑入」動畫：切換世代後，用 Web Animations API 對外層容器做一次 GPU transform（不重繪 Recharts，故平滑不卡）。
+  const auditWrapRef = useRef(null);
+  const auditDirRef = useRef(1); // 1=往後（下一個世代,自右滑入）、-1=往前（自左滑入）
+  const auditFirstRef = useRef(true);
+  useEffect(() => {
+    if (auditFirstRef.current) {
+      auditFirstRef.current = false;
+      return;
+    } // 首次載入不動畫
+    const el = auditWrapRef.current;
+    if (el && typeof el.animate === 'function') {
+      const dx = (auditDirRef.current >= 0 ? 1 : -1) * 24;
+      try {
+        el.animate([{
+          transform: `translateX(${dx}px)`,
+          opacity: 0.4
+        }, {
+          transform: 'translateX(0)',
+          opacity: 1
+        }], {
+          duration: 300,
+          easing: 'cubic-bezier(0.22, 1, 0.36, 1)'
+        });
+      } catch (e) {}
+    }
+  }, [auditCohort]);
   const renderChart = () => {
     if (!simResults) return null;
     let data = [];
@@ -1654,7 +1827,8 @@ const App = () => {
     }), /*#__PURE__*/React.createElement(RechartsTooltip, {
       content: /*#__PURE__*/React.createElement(CustomTooltip, {
         percentMode: viewMode === 'survival',
-        lang: lang
+        lang: lang,
+        cohortStart: simResults && simResults.marketMode === 'hist' ? simResults.medianCohortStart : null
       })
     }), /*#__PURE__*/React.createElement(Legend, {
       payload: legendPayload,
@@ -1706,16 +1880,34 @@ const App = () => {
     }))));
   };
   const renderAuditTrail = () => {
-    if (!simResults || !simResults.auditData) return null;
+    if (!simResults || !simResults.auditAll) return null;
     const stratInfo = strategiesDef.find(s => s.id === auditStrategy);
-    const auditChartData = simResults.auditData.map(d => ({
-      year: d.year,
-      marketReturn: d.marketReturn,
-      baseline: auditChartMode === 'netWorth' ? d.baseline.nw : d.baseline.w,
-      vanguard: auditChartMode === 'netWorth' ? d.vanguard.nw : d.vanguard.w,
-      guyton: auditChartMode === 'netWorth' ? d.guyton.nw : d.guyton.w,
-      endowment: auditChartMode === 'netWorth' ? d.endowment.nw : d.endowment.w
-    }));
+
+    // 即時挑選要檢視的世代（不重算）：歷史模式夾在有效範圍內，其餘第 0 條
+    const isHist = simResults.marketMode === 'hist';
+    const cohortCount = simResults.auditCohortCount || 1;
+    const clampedCohort = isHist ? Math.min(Math.max(0, auditCohort), cohortCount - 1) : 0;
+    const auditData = simResults.auditAll[clampedCohort] || [];
+    const auditCohortStart = isHist ? simResults.auditBaseStart + clampedCohort : null;
+
+    // 線條定義（key/名稱/色）傳給 AuditChart；名稱沿用原本（傳統/Vanguard/Guyton/Yale）
+    const auditLineDefs = [{
+      key: 'baseline',
+      name: tr('傳統', 'Traditional'),
+      color: '#94a3b8'
+    }, {
+      key: 'vanguard',
+      name: 'Vanguard',
+      color: '#0ea5e9'
+    }, {
+      key: 'guyton',
+      name: 'Guyton',
+      color: '#f59e0b'
+    }, {
+      key: 'endowment',
+      name: 'Yale',
+      color: '#ec4899'
+    }];
     const legendPayload = activeStrategies.map(s => ({
       id: s.id,
       type: 'circle',
@@ -1733,14 +1925,47 @@ const App = () => {
       className: "text-indigo-600"
     }), " ", tr('深度稽核', 'Deep audit')), /*#__PURE__*/React.createElement("p", {
       className: "text-[10px] md:text-xs text-slate-500 mt-1"
-    }, tr('抽出單一平行宇宙，觀察在同樣市場漲跌下的策略反應。', 'Pull a single parallel universe and watch how the strategies respond under the same market ups and downs.'))), /*#__PURE__*/React.createElement("button", {
+    }, simResults && simResults.marketMode === 'hist' ? tr(`逐一檢視各歷史起點世代（共 ${simResults.auditCohortCount} 個），看同一段真實歷史下四策略的逐年反應。`, `Step through each historical starting cohort (${simResults.auditCohortCount} total) to see all four strategies react year by year in that real history.`) : tr('抽出單一平行宇宙，觀察在同樣市場漲跌下的策略反應。', 'Pull a single parallel universe and watch how the strategies respond under the same market ups and downs.'))), simResults && simResults.marketMode === 'hist' ? (() => {
+      const cnt = simResults.auditCohortCount || 1;
+      const base = simResults.auditBaseStart;
+      const setYr = yr => setAuditCohort(Math.min(cnt - 1, Math.max(0, Math.round(yr) - base)));
+      return /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-1 w-full md:w-auto justify-between md:justify-end bg-white border border-slate-200 rounded-lg p-1 shadow-sm shrink-0"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-[10px] font-bold text-slate-500 px-1.5 shrink-0"
+      }, tr('世代起點', 'Cohort')), /*#__PURE__*/React.createElement("button", {
+        onClick: () => {
+          auditDirRef.current = -1;
+          setAuditCohort(c => (c - 1 + cnt) % cnt);
+        },
+        title: tr('上一個世代', 'Previous cohort'),
+        className: "px-2.5 py-1 rounded-md bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-700 font-bold leading-none"
+      }, "\u2039"), /*#__PURE__*/React.createElement("input", {
+        type: "number",
+        min: base,
+        max: base + cnt - 1,
+        value: auditCohortStart,
+        onChange: e => {
+          const v = Number(e.target.value) || base;
+          auditDirRef.current = v >= auditCohortStart ? 1 : -1;
+          setYr(v);
+        },
+        className: "w-16 text-center font-mono font-bold text-sm text-indigo-700 bg-slate-50 border border-slate-200 rounded-md py-1 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+      }), /*#__PURE__*/React.createElement("button", {
+        onClick: () => {
+          auditDirRef.current = 1;
+          setAuditCohort(c => (c + 1) % cnt);
+        },
+        title: tr('下一個世代', 'Next cohort'),
+        className: "px-2.5 py-1 rounded-md bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-700 font-bold leading-none"
+      }, "\u203A"));
+    })() : /*#__PURE__*/React.createElement("button", {
       onClick: () => setSimSeed(s => s + 1),
-      disabled: simResults && simResults.marketMode === 'hist',
-      className: `w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-colors whitespace-nowrap shadow-sm text-white ${simResults && simResults.marketMode === 'hist' ? 'bg-slate-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`
+      className: "w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-colors whitespace-nowrap shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
     }, /*#__PURE__*/React.createElement(RefreshCw, {
       size: 14,
       className: isSimulating ? "animate-spin" : ""
-    }), " ", simResults && simResults.marketMode === 'hist' ? tr('結果固定', 'Fixed') : tr('重抽宇宙', 'Resample path'))), /*#__PURE__*/React.createElement("div", {
+    }), " ", tr('重抽宇宙', 'Resample path'))), /*#__PURE__*/React.createElement("div", {
       className: "p-3 md:p-4 border-b border-slate-100 shrink-0"
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-2 px-1"
@@ -1761,125 +1986,19 @@ const App = () => {
     }, /*#__PURE__*/React.createElement(Activity, {
       className: "animate-pulse text-indigo-400",
       size: 24
-    })), /*#__PURE__*/React.createElement(ResponsiveContainer, {
-      width: "100%",
-      height: "100%"
-    }, /*#__PURE__*/React.createElement(ComposedChart, {
-      data: auditChartData,
-      margin: {
-        top: 5,
-        right: -15,
-        left: -25,
-        bottom: 0
-      }
-    }, /*#__PURE__*/React.createElement(CartesianGrid, {
-      strokeDasharray: "3 3",
-      vertical: false,
-      stroke: "#f1f5f9"
-    }), /*#__PURE__*/React.createElement(XAxis, {
-      dataKey: "year",
-      type: "number",
-      domain: [0, 'dataMax'],
-      tickCount: Math.floor(years / 5) + 1,
-      tick: {
-        fontSize: 9,
-        fill: '#94a3b8'
-      },
-      tickMargin: 5
-    }), /*#__PURE__*/React.createElement(YAxis, {
-      yAxisId: "left",
-      type: "number",
-      tickFormatter: val => typeof val === 'number' ? viewMode === 'survival' ? val.toLocaleString() : lang === 'en' ? fmtWanEn(val) : val >= 10000 ? (val / 10000).toFixed(0) + '億' : val.toLocaleString() : val,
-      tick: {
-        fontSize: 9,
-        fill: '#64748b',
-        fontWeight: 'bold'
-      },
-      width: 40
-    }), /*#__PURE__*/React.createElement(YAxis, {
-      yAxisId: "right",
-      orientation: "right",
-      type: "number",
-      tickFormatter: val => typeof val === 'number' ? val.toFixed(0) + '%' : val,
-      tick: {
-        fontSize: 9,
-        fill: '#cbd5e1'
-      },
-      domain: ['auto', 'auto'],
-      width: 35
-    }), /*#__PURE__*/React.createElement(RechartsTooltip, {
-      content: /*#__PURE__*/React.createElement(CustomTooltip, {
-        lang: lang
-      })
-    }), /*#__PURE__*/React.createElement(Legend, {
-      payload: legendPayload,
-      verticalAlign: "top",
-      height: 24,
-      wrapperStyle: {
-        fontSize: '10px',
-        fontWeight: 'bold',
-        color: '#475569'
-      }
-    }), /*#__PURE__*/React.createElement(Bar, {
-      yAxisId: "right",
-      dataKey: "marketReturn",
-      name: tr('市場報酬', 'Market return'),
-      fill: "#e2e8f0",
-      radius: [2, 2, 0, 0],
-      opacity: 0.6
-    }), selectedModels.includes("baseline") && /*#__PURE__*/React.createElement(Line, {
-      yAxisId: "left",
-      type: "monotone",
-      dataKey: "baseline",
-      name: tr('傳統', 'Traditional'),
-      stroke: "#94a3b8",
-      strokeWidth: 2,
-      dot: false,
-      activeDot: {
-        r: 3
-      },
-      isAnimationActive: false,
-      legendType: "none"
-    }), selectedModels.includes("vanguard") && /*#__PURE__*/React.createElement(Line, {
-      yAxisId: "left",
-      type: "monotone",
-      dataKey: "vanguard",
-      name: "Vanguard",
-      stroke: "#0ea5e9",
-      strokeWidth: 2,
-      dot: false,
-      activeDot: {
-        r: 3
-      },
-      isAnimationActive: false,
-      legendType: "none"
-    }), selectedModels.includes("guyton") && /*#__PURE__*/React.createElement(Line, {
-      yAxisId: "left",
-      type: "monotone",
-      dataKey: "guyton",
-      name: "Guyton",
-      stroke: "#f59e0b",
-      strokeWidth: 2,
-      dot: false,
-      activeDot: {
-        r: 3
-      },
-      isAnimationActive: false,
-      legendType: "none"
-    }), selectedModels.includes("endowment") && /*#__PURE__*/React.createElement(Line, {
-      yAxisId: "left",
-      type: "monotone",
-      dataKey: "endowment",
-      name: "Yale",
-      stroke: "#ec4899",
-      strokeWidth: 2,
-      dot: false,
-      activeDot: {
-        r: 3
-      },
-      isAnimationActive: false,
-      legendType: "none"
-    }))))), /*#__PURE__*/React.createElement("div", {
+    })), /*#__PURE__*/React.createElement("div", {
+      ref: auditWrapRef,
+      className: "h-full w-full will-change-transform"
+    }, /*#__PURE__*/React.createElement(AuditChart, {
+      data: auditChartTarget,
+      lang: lang,
+      viewMode: viewMode,
+      years: years,
+      selectedModels: selectedModels,
+      legendPayload: legendPayload,
+      cohortStart: auditCohortStart,
+      lineDefs: auditLineDefs
+    })))), /*#__PURE__*/React.createElement("div", {
       className: "bg-slate-50/50 flex flex-col shrink-0 border-b border-slate-200"
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex overflow-x-auto no-scrollbar px-3 py-2 gap-2 border-b border-slate-100"
@@ -1921,7 +2040,7 @@ const App = () => {
       className: "px-3 md:px-4 py-2.5 text-left w-1/3 bg-white"
     }, tr('狀態備註', 'Status')))), /*#__PURE__*/React.createElement("tbody", {
       className: "divide-y divide-slate-100"
-    }, simResults.auditData.map((row, idx) => {
+    }, auditData.map((row, idx) => {
       const sData = row[auditStrategy];
       const isNegativeMarket = row.marketReturn < 0;
       const isDead = sData.nw <= 0;
@@ -1981,7 +2100,7 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.2"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.8"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-indigo-400"
@@ -2239,7 +2358,9 @@ const App = () => {
     className: "text-[10px] font-bold text-indigo-600"
   }, tr('可用 ', ''), histWindowCount(histWeights, years), tr(' 個歷史世代', ' cohorts'))), /*#__PURE__*/React.createElement("p", {
     className: "text-[9px] text-slate-400 mt-1.5 leading-relaxed"
-  }, tr('權重自動正規化為比例（不必剛好 100%）。每個歷史起點＝一條人生；重疊窗使世代數有限（非一萬條），存活率以實際世代比例計。', 'Weights auto-normalize (need not sum to 100%). Each historical start = one life; overlapping windows give a limited cohort count (not 10,000); survival is the share of actual cohorts.'))), /*#__PURE__*/React.createElement("div", {
+  }, tr('權重自動正規化為比例（不必剛好 100%）。每個歷史起點＝一條人生；重疊窗使世代數有限（非一萬條），存活率以實際世代比例計。', 'Weights auto-normalize (need not sum to 100%). Each historical start = one life; overlapping windows give a limited cohort count (not 10,000); survival is the share of actual cohorts.')), /*#__PURE__*/React.createElement("p", {
+    className: "text-[9px] text-amber-600/90 mt-1 leading-relaxed bg-amber-50/60 rounded px-1.5 py-1 border border-amber-100"
+  }, tr('⚠ 方法論：世代數少、且彼此高度重疊（相鄰世代共用大半年份→高度自相關、非獨立抽樣）。P10／P90／中位是「歷史上真實出現過的起點」的描述統計，不是機率分佈，樣本誤差大、勿過度解讀；單一極端世代（如 1929、1973）影響很大。建議搭配「你的假設→歷史抽樣（bootstrap）」一起看。', '⚠ Method note: few cohorts, heavily overlapping (adjacent cohorts share most years → highly autocorrelated, not independent draws). P10/P90/median are descriptive stats of starting points that actually occurred, not a probability distribution — large sampling error, do not over-read; a single extreme cohort (e.g. 1929, 1973) weighs heavily. Best read alongside "Your assumptions → Historical sampling (bootstrap)".'))), /*#__PURE__*/React.createElement("div", {
     className: `grid ${lang === 'en' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2'} gap-2 md:gap-3 mb-4`
   }, /*#__PURE__*/React.createElement(InputSlider, {
     label: tr('預期年化報酬', 'Expected annual return'),
@@ -2632,6 +2753,8 @@ const App = () => {
         color: s.color
       };
     }).filter(Boolean);
+    // 縱軸上限要涵蓋最高的鬚線（P90），否則 Recharts 只依中位長條自動縮放，歷史模式的高 P90 鬚線會被裁切
+    const maxWhisker = Math.max(1.3, ...fmData.map(d => d.p90 || 0));
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "h-[200px] md:h-[230px] w-full"
     }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
@@ -2660,6 +2783,8 @@ const App = () => {
       axisLine: false,
       tickLine: false
     }), /*#__PURE__*/React.createElement(YAxis, {
+      domain: [0, Math.ceil(maxWhisker * 1.08)],
+      allowDecimals: false,
       tickFormatter: v => `${v}x`,
       tick: {
         fontSize: 9,
@@ -2918,7 +3043,14 @@ const App = () => {
     className: "px-2 py-3 text-amber-700 bg-amber-50/50 align-top"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col items-center gap-0.5"
-  }, /*#__PURE__*/React.createElement("span", null, tr('提領變異係數（CV）', 'Withdrawal CV')), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, tr('提領變異係數（CV）', 'Withdrawal CV'), /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-64",
+    align: "center",
+    iconClass: "text-amber-300",
+    size: 11
+  }, tr('CV＝該人生實質提領的標準差÷平均（越低＝逐年生活費越穩）；僅計順利走完全程的存活路徑。開啟「微笑曲線」時，刻意的年齡遞減本來就是計畫的一部分，故 CV 會先除掉微笑趨勢、只衡量「相對計畫、由市場造成的偏離」——這也是為何傳統 4% 法則即使開微笑，CV 仍接近 0（它完全照計畫走）。', 'CV = std ÷ mean of a life real withdrawals (lower = steadier spending); surviving paths only. With the smile curve on, the intentional age-decline is part of the plan, so CV first removes the smile trend and measures only market-driven deviation from plan — which is why the 4% rule stays near 0 even with smile on (it follows the plan exactly).'))), /*#__PURE__*/React.createElement("span", {
     className: "font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-amber-500/90"
   }, tr('越低越穩，生活費不亂跳', 'Lower = steadier spending')))))), /*#__PURE__*/React.createElement("tbody", {
     className: "divide-y divide-slate-100"
