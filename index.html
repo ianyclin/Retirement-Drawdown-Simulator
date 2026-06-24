@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v7.8</title>
+    <title>退休動態提領模擬器 v7.16</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -18,6 +18,18 @@
         .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        /* 參數欄專用：明顯、常駐的捲軸（覆蓋 Mac overlay 捲軸，讓使用者看得出左欄可獨立捲動） */
+        .param-scroll { scrollbar-width: auto; scrollbar-color: #cbd5e1 #f1f5f9; }
+        .param-scroll::-webkit-scrollbar { width: 10px; }
+        .param-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 6px; }
+        .param-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; border: 2px solid #f1f5f9; }
+        .param-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        /* 左側參數欄：桌機(lg+)為獨立捲動的黏性側欄。用原生 CSS 媒體查詢，避免 Tailwind 任意值 calc 與 grid 拉伸的不可靠交互；align-self:start 解除 grid 等高拉伸，max-height 限高後 overflow 才會在欄內捲動。 */
+        @media (min-width: 1024px) {
+            /* app-shell 雙面板:外層 h-screen flex-col,header 固定(shrink-0),grid 以 flex-1 填滿其下剩餘空間並設 grid-rows-1(單列 1fr)。
+               兩欄為 grid 子項,min-height:0＋height:100% 取得確定高度後 overflow-y:auto 各自獨立捲動。 */
+            .work-pane { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+        }
         
         .sticky-col { position: sticky; left: 0; background-color: #ffffff; z-index: 20; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1); }
         .sticky-header { position: sticky; top: 0; z-index: 30; }
@@ -1048,7 +1060,7 @@ const AuditChart = memo(function AuditChart({
   }), /*#__PURE__*/React.createElement(YAxis, {
     yAxisId: "left",
     type: "number",
-    tickFormatter: val => typeof val === 'number' ? viewMode === 'survival' ? val.toLocaleString() : lang === 'en' ? fmtWanEn(val) : val >= 10000 ? (val / 10000).toFixed(0) + '億' : val.toLocaleString() : val,
+    tickFormatter: val => typeof val === 'number' ? lang === 'en' ? fmtWanEn(val) : val >= 10000 ? (val / 10000).toFixed(0) + '億' : val.toLocaleString() : val,
     tick: {
       fontSize: 9,
       fill: '#64748b',
@@ -1104,6 +1116,46 @@ const AuditChart = memo(function AuditChart({
     legendType: "none"
   }))));
 });
+
+// 版本紀錄單筆:一般筆(changes)直接列出;群組筆(summary＋detail)顯示摘要,可點開看各版細節
+const VersionEntry = ({
+  v
+}) => {
+  const [open, setOpen] = useState(false);
+  if (v.detail) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "text-[10px] leading-relaxed"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setOpen(o => !o),
+      className: "text-left w-full hover:bg-slate-100 rounded px-1 -mx-1 py-0.5 transition-colors"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "font-bold text-slate-600"
+    }, v.ver), /*#__PURE__*/React.createElement("span", {
+      className: "text-slate-500"
+    }, "\u3000", v.summary), /*#__PURE__*/React.createElement("span", {
+      className: "text-indigo-400 ml-1 whitespace-nowrap"
+    }, open ? '▴ 收合' : '▾ 細節')), open && /*#__PURE__*/React.createElement("div", {
+      className: "mt-1.5 ml-1 pl-2.5 border-l-2 border-slate-200 space-y-2 animate-in fade-in duration-150"
+    }, v.detail.map(d => /*#__PURE__*/React.createElement("div", {
+      key: d.ver
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "font-bold text-slate-500"
+    }, d.ver), /*#__PURE__*/React.createElement("ul", {
+      className: "list-disc list-inside text-slate-400 mt-0.5 space-y-0.5"
+    }, d.changes.map((c, i) => /*#__PURE__*/React.createElement("li", {
+      key: i
+    }, c)))))));
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] leading-relaxed"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-bold text-slate-600"
+  }, v.ver), /*#__PURE__*/React.createElement("ul", {
+    className: "list-disc list-inside text-slate-500 mt-0.5 space-y-0.5"
+  }, v.changes.map((c, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, c))));
+};
 const App = () => {
   const [activeTab, setActiveTab] = useState('monteCarlo');
   const [auditStrategy, setAuditStrategy] = useState('guyton');
@@ -1196,17 +1248,49 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [{
-    ver: 'v7.8',
-    changes: ['「軌跡視覺化」改用 GPU 滑入動畫(放棄逐影格補間):v7.5/v7.7 會頓的根因是「每影格重餵新資料給 Recharts→整張圖重繪」太重。改為 Recharts 只渲染「一次」(新世代的靜態圖),再用 Web Animations API 對外層容器做一次 GPU transform 滑入(translateX＋淡入,300ms,純合成層、不觸發重繪)。下一個世代自右滑入、上一個自左滑入;切換不重算、不閃 loading']
+    ver: 'v7.16',
+    changes: ['整理版本紀錄:把「為同一目標反覆迭代」的版本收合成可點開的群組——v7.10–v7.15(左欄/版面獨立捲動問題)、v7.5–v7.8(軌跡視覺化世代切換動畫);預設只顯示一行摘要,點「▾ 細節」即可展開該群組各版的完整說明。其餘版本維持原樣']
   }, {
-    ver: 'v7.7',
-    changes: ['「軌跡視覺化」平滑滑動版（正解）:把稽核圖抽成獨立、memo 化的子元件,補間動畫的逐影格更新只重繪「這張圖」而非整頁——這才是 v7.5 卡頓的根因修正。配合 v7.6 的「模擬時預先算好所有世代」,切換世代時不重算、不閃 loading。340ms ease-out 逐點插值;因相鄰歷史世代僅差一年(資料左移一格),呈現背景漲跌幅與各策略線「向左/右平滑滑動」。切換檢視模式(淨值↔提領)或改年限(資料尺度/長度改變)則直接跳,不做跨尺度補間']
+    ver: 'v7.10–v7.15',
+    summary: '修正桌機「左欄參數無法獨立捲到底、需捲整頁才見最下方(Yale)」的版面問題;歷經 sticky／max-height／align-self／min-height 等多次嘗試,最終改為 app-shell 雙獨立捲動面板(header 固定、左右兩欄各自捲動)',
+    detail: [{
+      ver: 'v7.15',
+      changes: ['桌機版面改為真正的 app-shell,解決「header 還在時左欄看不到最底(Yale)」:先前 work-shell 用 sticky＋固定高 calc(100vh-2rem),在頁面頂端、header 尚未捲掉時容器還沒釘住,其底部垂在視窗外。現改為外層 h-screen flex-col、header 固定(shrink-0)、工作區 grid 以 flex-1 填滿「header 以下剛好剩餘的高度」(grid-rows-1 單列 1fr＋min-h-0),左右兩欄各自 overflow-y 獨立捲動——不論 header 在不在,左欄都能在欄內捲到底。展開「策略計算原理」說明時(內容長)自動切回整頁正常捲動以便閱讀,收合時恢復雙面板']
+    }, {
+      ver: 'v7.14',
+      changes: ['徹底重做桌機版面為「雙獨立捲動面板」:先前左欄靠 position:sticky＋max-height,實機證實 sticky 有釘住、但 max-height 在 grid 子項上不限高(左欄無捲軸、整段內容垂在視窗外)。改為整個工作區 grid 是「視窗高、黏性釘住」的容器(.work-shell),左右兩欄各自 height:100%＋overflow-y:auto(.work-pane)——用 definite height 保證限高與內部捲動一定生效。現在左欄、右欄各自獨立捲動且同時可見:可一邊在左欄調任一參數(含最底的 Yale)、一邊捲右欄觀察特定區域,彼此不互相牽動']
+    }, {
+      ver: 'v7.13',
+      changes: ['修正左欄捲不到底(卡在 Yale 中間、需捲整頁才見底)的根因:左欄是 grid 子項,預設 min-height:auto 不允許縮到比內容小,會壓過 max-height 使限高失效→欄位仍是內容高度而捲不完。補上 min-height:0,max-height:calc(100vh-2rem) 才真正生效,左欄即可在欄內完整捲到底,右側不動']
+    }, {
+      ver: 'v7.12',
+      changes: ['修正部署疏失:v7.11 把左欄黏性側欄的 .param-col 規則放進 <style>,但當次打包未重建 head,導致該 CSS 沒進到實際檔案——左欄只剩 class 名、失去 sticky/overflow,因而與整頁一起捲動。本次完整重建(含 head)後 .param-col(position:sticky＋align-self:start＋max-height＋overflow-y:auto)確實生效:桌機上左欄為獨立捲動的黏性側欄,可在欄內捲到底(Yale),右側結果區不受影響,便於一邊調參數一邊觀察右側變化']
+    }, {
+      ver: 'v7.11',
+      changes: ['左側參數欄獨立捲動改用原生 CSS 媒體查詢(取代 Tailwind 任意值)定義黏性側欄:position:sticky＋align-self:start(解除 grid 等高拉伸)＋max-height:calc(100vh-2rem)＋overflow-y:auto。先前用 Tailwind 的 lg:max-h-[calc(...)] 在 CDN 版可能因運算子空白/拉伸交互而未生效,導致左欄只能捲一半、底部(Yale)需捲整頁才出現。改原生 CSS 後左欄可在欄內完整捲到底,右側不動']
+    }, {
+      ver: 'v7.10',
+      changes: ['修正左欄參數無法獨立捲動的根因:左欄是 CSS Grid 項目,預設 align-self: stretch 會被「拉伸到與右欄同高」(右欄含圖表/表格/稽核而極高),導致左欄變成超高的黏性欄、內容塞得進去而不觸發自身捲動,只能跟著整頁捲到底才露出最下方(Yale)。加上 self-start 讓左欄以「內容高度(上限為視窗高)」收斂,超過視窗即在自身內部捲動——現在不必捲動右側/整頁,左欄即可獨立捲到 Yale']
+    }]
   }, {
-    ver: 'v7.6',
-    changes: ['「軌跡視覺化」世代切換改為「即時切換」,解決切世代卡頓:模擬時一次把所有歷史世代的稽核資料都算好,之後切換世代(‹ ›／輸入年份)純即時挑選——不再觸發全量重算、不再閃 loading 遮罩,也移除了會逐影格重繪整個頁面的補間動畫(那才是卡頓主因)。現在切換是乾淨、即時的單次更新']
+    ver: 'v7.9',
+    changes: ['版面:左側參數欄改為 max-h 自適應高度＋明顯常駐捲軸,修正在 MacBook 等裝置上因系統 overlay 捲軸看不見、導致參數最下方(Yale)需捲動整頁才看得到的問題', 'Guyton-Klinger 參數標籤(保本／繁榮:觸發閥值／削減／加薪)強制在冒號後換行,避免在窄欄位中於不美觀處斷行(中英皆是)', '修正:深度稽核圖左側 Y 軸金額格式原本誤用主圖的「存活率」判斷,改為一律金額(萬／億／M)——稽核圖永遠顯示淨值/提領,不受主圖檢視模式影響']
   }, {
-    ver: 'v7.5',
-    changes: ['「軌跡視覺化」世代切換動畫:改為在新舊世代資料間自製逐點補間（300ms ease-out）。相鄰歷史世代僅差一年（資料整體左移一格），故背景漲跌幅與各策略線會「平滑向左/右滑動」過渡,而非瞬間跳動或從零重畫（Recharts 內建進場動畫已關閉,改由補間驅動）；切換檢視模式（淨值↔提領）或改年限時直接跳、不做跨尺度補間']
+    ver: 'v7.5–v7.8',
+    summary: '「軌跡視覺化」世代切換的平滑動畫;從逐影格重餵 Recharts 造成的卡頓,最終改為 Recharts 只渲染一次＋Web Animations API 的 GPU transform 滑入',
+    detail: [{
+      ver: 'v7.8',
+      changes: ['「軌跡視覺化」改用 GPU 滑入動畫(放棄逐影格補間):v7.5/v7.7 會頓的根因是「每影格重餵新資料給 Recharts→整張圖重繪」太重。改為 Recharts 只渲染「一次」(新世代的靜態圖),再用 Web Animations API 對外層容器做一次 GPU transform 滑入(translateX＋淡入,300ms,純合成層、不觸發重繪)。下一個世代自右滑入、上一個自左滑入;切換不重算、不閃 loading']
+    }, {
+      ver: 'v7.7',
+      changes: ['「軌跡視覺化」平滑滑動版（正解）:把稽核圖抽成獨立、memo 化的子元件,補間動畫的逐影格更新只重繪「這張圖」而非整頁——這才是 v7.5 卡頓的根因修正。配合 v7.6 的「模擬時預先算好所有世代」,切換世代時不重算、不閃 loading。340ms ease-out 逐點插值;因相鄰歷史世代僅差一年(資料左移一格),呈現背景漲跌幅與各策略線「向左/右平滑滑動」。切換檢視模式(淨值↔提領)或改年限(資料尺度/長度改變)則直接跳,不做跨尺度補間']
+    }, {
+      ver: 'v7.6',
+      changes: ['「軌跡視覺化」世代切換改為「即時切換」,解決切世代卡頓:模擬時一次把所有歷史世代的稽核資料都算好,之後切換世代(‹ ›／輸入年份)純即時挑選——不再觸發全量重算、不再閃 loading 遮罩,也移除了會逐影格重繪整個頁面的補間動畫(那才是卡頓主因)。現在切換是乾淨、即時的單次更新']
+    }, {
+      ver: 'v7.5',
+      changes: ['「軌跡視覺化」世代切換動畫:改為在新舊世代資料間自製逐點補間（300ms ease-out）。相鄰歷史世代僅差一年（資料整體左移一格），故背景漲跌幅與各策略線會「平滑向左/右滑動」過渡,而非瞬間跳動或從零重畫（Recharts 內建進場動畫已關閉,改由補間驅動）；切換檢視模式（淨值↔提領）或改年限時直接跳、不做跨尺度補間']
+    }]
   }, {
     ver: 'v7.4',
     changes: ['深度稽核世代導覽:歷史模式的單一「下一個世代」鈕,升級為「‹ 上一個 ｜ 起點年份輸入框（可打字、含上下微調）｜ 下一個 ›」,可直接跳到任一起點世代(如 1929、1973、2000、2008)', '趨勢圖與「軌跡視覺化」tooltip:純歷史回測模式下,於「退休第 N 年」後加註真實西元年份(例:退休第 18 年（西元 1985）;主圖用中位世代、稽核圖用當前檢視世代的起點)', '修正「期末累積資產（初始的幾倍）」縱軸:原本 Recharts 只依中位長條自動縮放,使歷史抽樣／純歷史回測中較高的 P90 鬚線被裁切(看似固定在約 8x);改為縱軸上限自動涵蓋最高鬚線,各模式皆完整顯示', '修正 CV(提領變異係數)語意:開啟「微笑曲線」時,刻意的年齡遞減本是計畫的一部分,原本被當成不穩定而使 CV 虛高(連傳統 4% 法則都上升)。改為先除掉微笑趨勢、只衡量「相對計畫、由市場造成的偏離」——故傳統法則開微笑後 CV 仍≈0;微笑關閉時與舊值完全相同', '純歷史回測新增方法論提醒:世代數少且彼此重疊(高度自相關、非獨立抽樣),P10／P90／中位為描述統計而非機率分佈,單一極端世代影響大,勿過度解讀,建議與「歷史抽樣 bootstrap」對照']
@@ -2091,16 +2175,16 @@ const App = () => {
   const effN = simResults ? simResults.effSimCount : simCount;
   const effIsHist = !!(simResults && simResults.marketMode === 'hist');
   return /*#__PURE__*/React.createElement("div", {
-    className: "max-w-[1400px] mx-auto p-2 md:p-5 lg:p-6 pb-20"
+    className: `max-w-[1400px] mx-auto px-2 md:px-5 lg:px-6 ${showDefinitions ? 'py-2 md:py-5 lg:py-6 pb-20' : 'py-2 md:py-5 pb-20 lg:py-3 lg:pb-3 lg:h-screen lg:flex lg:flex-col lg:overflow-hidden'}`
   }, /*#__PURE__*/React.createElement("header", {
-    className: "mb-4 md:mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 px-2 md:px-0"
+    className: "mb-4 md:mb-6 lg:shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 px-2 md:px-0"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", {
     className: "text-xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2 md:gap-3"
   }, /*#__PURE__*/React.createElement(Activity, {
     className: "w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.8"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.16"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-indigo-400"
@@ -2193,9 +2277,9 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("li", null, "Bengen, W. P. (1994). Determining Withdrawal Rates Using Historical Data. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), ". ", tr('— 4% 法則原始出處', '— original 4% rule source')), /*#__PURE__*/React.createElement("li", null, "Cooley, P. L., Hubbard, C. M., & Walz, D. T. (1998). Retirement Savings: Choosing a Sustainable Withdrawal Rate (Trinity Study). ", /*#__PURE__*/React.createElement("i", null, "AAII Journal"), "."), /*#__PURE__*/React.createElement("li", null, "Guyton, J. T. (2004). Decision Rules and Portfolio Management for Retirees. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), "."), /*#__PURE__*/React.createElement("li", null, "Guyton, J. T., & Klinger, W. J. (2006). Decision Rules and Maximum Initial Withdrawal Rates. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), ". ", tr('— 保本／繁榮護欄、修正提領法則', '— preserve/prosperity guardrails, modified rule')), /*#__PURE__*/React.createElement("li", null, "Jaconetti, C. M., et al. (2020). From Assets to Income: A Goal-Based Approach to Retirement Spending. ", /*#__PURE__*/React.createElement("i", null, "Vanguard"), ". ", tr('— 動態提領上下限', '— dynamic withdrawal floor/ceiling')), /*#__PURE__*/React.createElement("li", null, "Costa, P., Pakula, D., & Clarke, A. S. (2021). Fuel for the F.I.R.E.: Updating the 4% rule for early retirees. ", /*#__PURE__*/React.createElement("i", null, "Vanguard Research"), "."), /*#__PURE__*/React.createElement("li", null, "Tobin, J. (1974). What Is Permanent Endowment Income? ", /*#__PURE__*/React.createElement("i", null, "American Economic Review"), "\uFF1BSwensen, D. F. (2009). ", /*#__PURE__*/React.createElement("i", null, "Pioneering Portfolio Management"), ". ", tr('— 耶魯/Tobin 80/20 平滑支出規則', '— Yale/Tobin 80/20 smoothing rule'))), /*#__PURE__*/React.createElement("p", {
     className: "text-[9px] text-slate-400 mt-2 leading-relaxed"
   }, tr('本模擬器之數值為示意性蒙地卡羅結果，非投資建議；實際規劃請納入稅負、健保、社會保險等本模型未涵蓋之因素。', 'These figures are illustrative Monte Carlo results, not investment advice; real planning should also include taxes, health insurance, social insurance and other factors this model omits.')))), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 relative"
+    className: "grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 relative lg:flex-1 lg:min-h-0 lg:overflow-hidden lg:grid-rows-1"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "lg:col-span-4 flex flex-col gap-4 md:gap-5 lg:sticky lg:top-4 lg:h-[calc(100vh-40px)] lg:overflow-y-auto lg:overscroll-contain custom-scroll pr-1 px-2 md:px-0"
+    className: "lg:col-span-4 flex flex-col gap-4 md:gap-5 work-pane param-scroll pr-1 px-2 md:px-0 lg:pb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-white p-4 md:p-5 rounded-xl shadow-sm border-2 border-indigo-100"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2623,7 +2707,9 @@ const App = () => {
   }), " Guyton-Klinger"), /*#__PURE__*/React.createElement("div", {
     className: `grid ${lang === 'en' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2'} gap-2 mb-2`
   }, /*#__PURE__*/React.createElement(InputSlider, {
-    label: tr('保本：觸發閥值', 'Preserve: trigger'),
+    label: /*#__PURE__*/React.createElement("span", {
+      className: "leading-snug"
+    }, tr('保本：', 'Preserve:'), /*#__PURE__*/React.createElement("br", null), tr('觸發閥值', 'trigger')),
     value: gkCapPreserveThresh,
     setter: setGkCapPreserveThresh,
     min: 0,
@@ -2633,7 +2719,9 @@ const App = () => {
     color: "amber",
     info: tr('提領率相對初始攀升X%時觸發', 'Triggers when the rate climbs X% above the initial rate')
   }), /*#__PURE__*/React.createElement(InputSlider, {
-    label: tr('保本：削減提領', 'Preserve: cut'),
+    label: /*#__PURE__*/React.createElement("span", {
+      className: "leading-snug"
+    }, tr('保本：', 'Preserve:'), /*#__PURE__*/React.createElement("br", null), tr('削減提領', 'cut')),
     value: gkCapPreserveCut,
     setter: setGkCapPreserveCut,
     min: 0,
@@ -2644,7 +2732,9 @@ const App = () => {
   })), /*#__PURE__*/React.createElement("div", {
     className: `grid ${lang === 'en' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2'} gap-2`
   }, /*#__PURE__*/React.createElement(InputSlider, {
-    label: tr('繁榮：觸發閥值', 'Prosperity: trigger'),
+    label: /*#__PURE__*/React.createElement("span", {
+      className: "leading-snug"
+    }, tr('繁榮：', 'Prosperity:'), /*#__PURE__*/React.createElement("br", null), tr('觸發閥值', 'trigger')),
     value: gkProsperityThresh,
     setter: setGkProsperityThresh,
     min: 0,
@@ -2654,7 +2744,9 @@ const App = () => {
     color: "amber",
     info: tr('提領率相對初始下降X%時觸發', 'Triggers when the rate falls X% below the initial rate')
   }), /*#__PURE__*/React.createElement(InputSlider, {
-    label: tr('繁榮：增加提領', 'Prosperity: raise'),
+    label: /*#__PURE__*/React.createElement("span", {
+      className: "leading-snug"
+    }, tr('繁榮：', 'Prosperity:'), /*#__PURE__*/React.createElement("br", null), tr('增加提領', 'raise')),
     value: gkProsperityHike,
     setter: setGkProsperityHike,
     min: 0,
@@ -2679,7 +2771,7 @@ const App = () => {
     color: "pink",
     info: tr('兩端會退化：100%＝固定金額（等同4%法則）、0%＝純百分比提領，中間才是真正的 Yale 平滑（耶魯用80%）。玩法：從80往下拉，觀察存活率↗、CV↗與期望提領的變化。', 'Both ends degenerate: 100% = fixed amount (same as the 4% rule), 0% = pure percentage; the middle is true Yale smoothing (Yale uses 80%). Try pulling from 80 downward and watch survival, CV and expected withdrawal change.')
   })))), /*#__PURE__*/React.createElement("div", {
-    className: "lg:col-span-8 flex flex-col gap-4 md:gap-5 px-2 md:px-0"
+    className: "lg:col-span-8 flex flex-col gap-4 md:gap-5 px-2 md:px-0 work-pane custom-scroll lg:pb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex bg-white rounded-xl shadow-sm border border-slate-200 p-1.5 gap-1 font-bold text-xs md:text-sm"
   }, /*#__PURE__*/React.createElement("button", {
@@ -3107,16 +3199,10 @@ const App = () => {
     className: `inline-block transition-transform duration-200 ${showVersions ? 'rotate-180' : ''}`
   }, "\u25BE")), showVersions && /*#__PURE__*/React.createElement("div", {
     className: "mt-2 mx-auto max-w-md text-left bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2 animate-in fade-in duration-200"
-  }, versionHistory.map(v => /*#__PURE__*/React.createElement("div", {
+  }, versionHistory.map(v => /*#__PURE__*/React.createElement(VersionEntry, {
     key: v.ver,
-    className: "text-[10px] leading-relaxed"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "font-bold text-slate-600"
-  }, v.ver), /*#__PURE__*/React.createElement("ul", {
-    className: "list-disc list-inside text-slate-500 mt-0.5 space-y-0.5"
-  }, v.changes.map((c, i) => /*#__PURE__*/React.createElement("li", {
-    key: i
-  }, c)))))))))));
+    v: v
+  }))))))));
 };
 const root = createRoot(document.getElementById('root'));
 root.render(/*#__PURE__*/React.createElement(App, null));
