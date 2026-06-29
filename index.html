@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v7.43</title>
+    <title>退休動態提領模擬器 v7.45</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -1275,6 +1275,40 @@ const TW_FLOOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 4
   <text x="920" y="418" font-size="11" font-weight="700" fill="#334155" text-anchor="middle">95</text>
   <text x="920" y="431" font-size="9" fill="#64748b" text-anchor="middle">規劃壽命</text>
 </svg>`;
+const BigExpenseCard = ({ e, onChange, tr }) => {
+  const div = (cls, ...kids) => /*#__PURE__*/React.createElement("div", { className: cls }, ...kids);
+  const num = (val, on, w) => /*#__PURE__*/React.createElement("input", {
+    type: "number", value: val, onChange: ev => on(parseInt(ev.target.value) || 0),
+    className: `${w} text-[10px] border border-amber-200 rounded px-1 py-0.5 text-center`
+  });
+  return div(`rounded-lg p-2.5 border ${e.enabled ? 'bg-amber-50/50 border-amber-200' : 'bg-slate-50 border-slate-200 opacity-80'}`,
+    div("flex items-center gap-1.5",
+      /*#__PURE__*/React.createElement("input", {
+        type: "checkbox", checked: e.enabled,
+        onChange: ev => onChange(e.key, { enabled: ev.target.checked }),
+        className: "w-3.5 h-3.5 accent-amber-500 cursor-pointer shrink-0"
+      }),
+      /*#__PURE__*/React.createElement("span", { className: "text-[11px] font-extrabold text-amber-800 flex-1" }, e.label),
+      /*#__PURE__*/React.createElement(InfoPopover, { w: "w-72", align: "right", placement: "up", size: 12 }, e.info)
+    ),
+    e.enabled && div("space-y-2 mt-2",
+      /*#__PURE__*/React.createElement(InputSlider, {
+        label: tr('年支出（今日購買力）', 'Annual (today $)'),
+        value: e.annual, setter: v => onChange(e.key, { annual: v }),
+        min: 0, max: 2000000, step: 10000, scale: 10000, suffix: tr('萬/年', '×10k/yr'), color: "amber"
+      }),
+      div("flex items-center justify-between gap-2",
+        /*#__PURE__*/React.createElement("span", { className: "text-[10px] text-slate-500 shrink-0" }, tr('年齡區間', 'Age range')),
+        div("flex items-center gap-1",
+          num(e.startAge, v => onChange(e.key, { startAge: v }), "w-11"),
+          /*#__PURE__*/React.createElement("span", { className: "text-[10px] text-slate-400" }, "–"),
+          num(e.endAge, v => onChange(e.key, { endAge: v }), "w-11"),
+          /*#__PURE__*/React.createElement("span", { className: "text-[9px] text-slate-400 shrink-0" }, tr('歲', 'yo'))
+        )
+      )
+    )
+  );
+};
 const PensionSourceCard = ({ s, onChange, tr }) => {
   const seg = (active, on, txt) => /*#__PURE__*/React.createElement("button", {
     onClick: on,
@@ -1413,6 +1447,13 @@ const App = () => {
   const [monthlyTarget, setMonthlyTarget] = useState(50000); // 退休金需求試算：每月目標支出
   const [twTargetMode, setTwTargetMode] = useState(false); // 目標支出模式：開啟後支出=月目標×12（與資本脫鉤）、投組支應目標、年金照常灌注；由「套用」啟用
   const [twDiscountRate, setTwDiscountRate] = useState(2);
+  const [bigExpenses, setBigExpenses] = useState([
+    { key: 'travel', label: '旅遊／樂活', enabled: false, annual: 150000, startAge: 65, endAge: 80, info: '退休前期「活躍期」(go-go years) 的旅遊與娛樂，通常前 10–15 年較高、之後遞減。預設 15 萬/年、65–80 歲。' },
+    { key: 'medical', label: '醫療自費', enabled: false, annual: 80000, startAge: 65, endAge: 100, info: '健保之外的自費：自費醫材、標靶藥、手術差額、牙科、輔具等。台灣 60–69 歲每年自費醫療約 7.5 萬、且隨年齡升至全民 3–4 倍；一生自費醫療常估 400–600 萬。預設 8 萬/年、終身。' },
+    { key: 'ltc', label: '長期照護', enabled: false, annual: 480000, startAge: 80, endAge: 100, info: '長照(看護／護理之家／養生村)。台灣平均長照需求約 7.3 年；外籍看護月約 2.6 萬、護理之家月約 4 萬、高級養生村月約 8 萬(補助前)，整段歷程常估約 400 萬。預設 48 萬/年(月 4 萬)、80 歲起。' },
+    { key: 'custom', label: '自訂', enabled: false, annual: 0, startAge: 65, endAge: 100, info: '自填大筆支出：換房／裝修、子女、進修、奉養父母、一次性大額等(一次性可把年齡區間設為 1 年)。' }
+  ]);
+  const updateBigExp = (key, patch) => setBigExpenses(es => es.map(e => e.key === key ? { ...e, ...patch } : e));
   const [failOnZero, setFailOnZero] = useState(true); // 失敗條件：資產歸零
   const [failOnShortfall, setFailOnShortfall] = useState(true); // 失敗條件：實質消費跌破門檻
   const [shortfallThreshold, setShortfallThreshold] = useState(50); // 消費跌破門檻（占當年目標 smileT 的 %；微笑關時 smileT===expectedRealW）
@@ -1465,6 +1506,15 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [{
+    ver: 'v7.45',
+    changes: ['\u3010UI\uFF1A\u5BE6\u8CEA/\u540D\u76EE\u5207\u63DB\u3011\u300C\u8CC7\u7522\u8207\u63D0\u9818\u8DA8\u52E2\u300D\u7684\u5BE6\u8CEA/\u540D\u76EE\u5207\u63DB\u5728\u96FB\u8166\u7248\u6539\u56DE\u9760\u53F3\u3001\u24D8 \u6D6E\u5C64\u7DCA\u9130\u6309\u9215\uFF1B\u6D6E\u5C64\u300C\u5BE6\u8CEA/\u540D\u76EE\u300D\u5B57\u8272\u7531\u6DF1\u85CD\u6539\u767D(\u6613\u8B80)\uFF1B\u624B\u6A5F\u7248\u6539 inline \u8F03\u7DCA\u6E4A\u3002', '\u3010\u7248\u672C\u7D00\u9304\u6574\u7406\u3011\u628A v7.34\u2013v7.44 \u5171 11 \u7B46\u5E73\u92EA\u7248\u6298\u6210\u4E00\u500B\u53EF\u5C55\u958B\u5206\u4EE3(\u6458\u8981\uFF0B\u25BE\u7D30\u7BC0)\uFF0C\u8207 v7.18\u2013v7.33 \u7B49\u820A\u5206\u4EE3\u4E00\u81F4\uFF1B\u9010\u7248\u7D30\u7BC0\u5B8C\u6574\u4FDD\u7559\u3001\u4E0D\u6539\u5BEB\u6B77\u53F2\u3002']
+  }, {
+    ver: 'v7.34\u2013v7.44',
+    summary: '\u5E74\u91D1\u6A21\u578B\u6210\u719F\u8207\u529F\u80FD\u64F4\u5145\uFF1A\u6838\u5FC3\u6539\u5BEB\u70BA\u300C\u5E74\u91D1\u704C\u9032\u6295\u7D44\u3001\u63D0\u9818\u7167\u6A21\u578B\u300D(\u53D6\u4EE3\u5730\u677F\u62B5\u6E1B\u7684\u96D9\u91CD\u8A08\u7B97\u8207\u7B56\u7565\u4E0D\u5C0D\u7A31)\uFF1B\u5931\u6557\u6539\u96D9\u56E0\u5B50(\u8CC7\u7522\u6B78\u96F6\uFF0B\u5BE6\u8CEA\u6D88\u8CBB\u8DCC\u7834\uFF0C\u9580\u6ABB\u53EF\u52FE\u9078\u3001\u4EE5\u806F\u96C6\u8A08\u7B97)\u3001\u5FAE\u7B11\u66F2\u7DDA\u00D7\u8DCC\u7834\u9580\u6ABB\u57FA\u6E96\u4FEE\u6B63\u3001\u5168\u9762\u5BE9\u8A08\u8207\u6B7B\u78BC\u6E05\u7406\uFF1B\u5E74\u91D1\u6539\u70BA\u53EF\u81EA\u7531\u52FE\u9078\u7684\u591A\u4F86\u6E90\u5EFA\u69CB\u5668(\u52DE\u4FDD\uFF0F\u52DE\u9000\uFF0F\u570B\u4FDD\uFF0F\u516C\u4FDD\uFF0F\u9000\u64AB\uFF0F\u5176\u4ED6\uFF0C\u5404\u8A2D\u9818\u6CD5\uFF0F\u91D1\u984D\uFF0F\u5E74\u9F61\uFF0F\u671F\u9650\uFF0F\u6210\u9577)\u3001\u61C9\u5099\u9000\u4F11\u91D1\u6539\u540D\u76EE\u9663\u5217\u6298\u73FE\uFF1B\u65B0\u589E\u9000\u4F11\u5927\u7B46\u652F\u51FA\u5132\u5099(\u65C5\u904A\uFF0F\u91AB\u7642\uFF0F\u9577\u7167)\u540C\u6642\u63A5\u5165\u61C9\u5099\u73FE\u503C\u8207\u6A21\u64EC\u58D3\u529B\u6E2C\u8A66\uFF1B\u7528\u8A9E\u300C\u5730\u677F\u300D\u5168\u9762\u6539\u7A31\u300C\u9000\u4F11\u5E74\u91D1\uFF0F\u5E74\u91D1\u73FE\u91D1\u6D41\uFF0F\u4FDD\u5E95\u300D\uFF1B\u591A\u9805\u8AAA\u660E\u6D6E\u5C64\u8207\u624B\u6A5F\u7248\u9762\u91D0\u6E05\u3002',
+    detail: [{
+    ver: 'v7.44',
+    changes: ['【新增：退休大筆支出儲備】退休準備參數區(月目標下方)新增「旅遊／樂活、醫療自費、長期照護、自訂」四項可勾選的大筆支出，各自設定年支出(今日購買力)與年齡區間，逐年隨通膨成長。', '【雙向接入】勾選項目會(a)以現值疊加進「建議應備退休金」(顯示為 ①＋③−② 與 ③ 大筆支出儲備現值一行)，(b)在模擬中於指定年齡區間額外自投組提領、計入成功率壓力測試——可看出未預留大筆支出時退休計畫的脆弱度。', '【文獻預設值】長照：平均需求約 7.3 年、外籍看護月~2.6 萬／護理之家月~4 萬／高級養生村月~8 萬，整段約 400 萬(國衛院/衛福部/中租)；預設 48 萬/年(月 4 萬)、80 歲起。醫療自費：60–69 歲每年約 7.5 萬、老人為全民 3–4 倍、一生自費常估 427–600 萬(退休基金協會/富邦/國泰)；預設 8 萬/年、終身。旅遊：退休前期活躍期前置花費；預設 15 萬/年、65–80 歲。數字僅供起點，各項 ⓘ 有出處。', '【生活品質欄釐清】「預期生活品質佔比」副標改為「維持購買力年份比例（上）／購買力下降時的深度（下）」，浮層重寫說明兩數字意義；並澄清：開年金後「傳統」(固定提領) 因會把投組花光、之後只靠年金過活(約目標一半)，其「降級深度」本就會很深(如 −50%)，是斷崖本質、非計算錯誤，動態策略則為淺修多年。', '【新增浮層】「資產與提領趨勢」的實質/名目切換加上浮層：實質＝去通膨(折回今日購買力、方便與首年比較)；名目＝含通膨(帳面值逐年墊高)。', '【沿用既有正確性】關閉所有大筆支出時引擎與先前完全相同(高斯哨兵 [29.2,30,30,30] 不變)；引擎以萬為單位、應備計算以元為單位，已分別對齊。']
+  }, {
     ver: 'v7.43',
     changes: ['【用語：移除「地板」】使用者可見的參數、說明頁、SVG 標籤、應備退休金顯示中的「年金地板」一律改稱「退休年金」「年金現金流」或「保底」（如「保底＋裁量」「失敗時月保底」）。保留三處刻意對比的說明（「年金不是抵在支出底下的地板，而是流進投組的現金流」——用來破除迷思），及版本紀錄中的歷史用語（不改寫歷史）。', '【說明頁新增「公教／多來源」段】綠色說明面板加入專段：退撫月退俸（公部門退休主力、終身、所得替代率主角）、公保養老給付（補充性、終身年金式 0.75–1.3%/年最高 35 年、與退撫合計受上限封頂、可一次領）；並說明公教兩層皆終身、無 ~85 斷崖、無國保，以及一人可同時擁有多種（勞保＋勞退＋公保＋退撫並存）、配偶用「其他」加入。', '【手機顯示：括弧換行】含括弧的副標與子行改為換行更易讀：策略表「撐過全程不破產／（附：期望存活年）」、生活品質欄「頻率（上）／＋降級深度（下）」、每策略失敗子行「歸零 X% ｜ 跌破 Y% /（重疊 Z%）」。', '【沿用既有正確性】關閉時引擎與無年金完全相同（高斯哨兵 [29.2,30,30,30] 不變）；多來源建構器與先前所有修正全數保留。']
   }, {
@@ -1494,6 +1544,7 @@ const App = () => {
   }, {
     ver: 'v7.34',
     changes: ['【核心改寫】年金地板處理統一為單一正確模型「地板＋裁量（floor + discretionary）」，移除「債券化／現金流」雙模型切換。保證年金當固定地板，投組只支應「裁量缺口」，動態策略只對「流動投組」評估永續——不再把不能變現的年金現值當可花財富（修掉債券化橋接期超抽），地板也對每個策略對稱作用（修掉現金流不對稱）', '好年度行為依模式自動決定：目標模式封頂於目標、不超花（甲，公平比較「能否守住目標」）；非目標模式保留動態策略「好年多花」（乙）。經驗證：目標模式 0/899,999 動態策略年超過目標', '修正：投組耗盡後總支出正確退回「靠地板」（年金續發），不再歸零', '生活費下限改作用於「總支出」、與年金地板取 max（不再雙重計算）', '微笑曲線作用於總目標、缺口＝微笑後目標−地板（年金不縮、縮減落在裁量），只套一次', '哨兵不變 [29.2,30,30,30]、地板關閉與先前逐元等價'],
+  }]
   }, {
     ver: 'v7.18–v7.33',
     summary: '台灣年金地板建置期：computeTwFloor 引擎、「橋接 → 交棒 → ~85 歲斷崖」框架、勞退逐年成長、應備退休金試算、月領 ⇄ 一次領並排比較、InfoPopover 改 React Portal 定位、結算判準（條件 A/B）的增設與回退、年金幣值「萬」單位 bug 修正。（當時的「債券化／現金流」雙模型已於 v7.34 起淘汰）',
@@ -1794,6 +1845,11 @@ const App = () => {
           guyton: mkTotal(),
           endowment: mkTotal()
         };
+        const bigExpReal = new Array(years).fill(0);
+        for (const be of bigExpenses) {
+          if (!be.enabled || !be.annual) continue;
+          for (let t = 0; t < years; t++) { const age = retireAge + t; if (age >= be.startAge && age < be.endAge) bigExpReal[t] += be.annual / 10000; } // 元→萬(對齊引擎單位)
+        }
         const auditAll = [];
         const universePerformances = [];
         for (let i = 0; i < M; i++) {
@@ -1886,6 +1942,7 @@ const App = () => {
               const pensionIn = useTwFloor ? twFloorNom[t] : 0;
               let currentNote = '';
               const expectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t - 1];
+              const bigExpNom = bigExpReal[t] ? bigExpReal[t] * (t === 0 ? 1 : inflFactors[t - 1]) : 0; // 大筆支出：實質金額隨物價成長為名目，額外自投組提領
               // 微笑曲線：依年齡彎曲「目標線」（整個模型僅此一處改動）;未開啟時 smileT === expectedRealW(水平)
               const smileT = useSmile ? expectedRealW * smileFactor(retireAge + t, retireAge, smileDepth) : expectedRealW;
               let baseW = 0; // 策略在「未彎基準」下決定的提領（餵回 pathBaseW，供依前一年的護欄使用，不含微笑→不累乘）
@@ -1921,7 +1978,7 @@ const App = () => {
                 }
                 if (twSpend < smileT - 0.1) pathDowngraded++;
                 if (!dead) {
-                  nw -= twDraw;
+                  nw -= twDraw + bigExpNom;
                   if (nw <= 0) {
                     nw = 0;
                     if (t < years - 1) { dead = true; ruinYear = t + 1; }
@@ -1943,7 +2000,7 @@ const App = () => {
                 twDraw = want;
                 twSpend = want;
                 if (twSpend < smileT - 0.1) pathDowngraded++;
-                nw -= twDraw;
+                nw -= twDraw + bigExpNom;
                 if (nw <= 0.0001) { nw = 0; everZeroed = true; } else { nw *= 1 + marketReturns[t]; }
                 if (twSpend < shortfallThreshold / 100 * smileT - 0.0001) everShortfall = true; // 名目對名目（expectedRealW 為維持實質的名目目標線）
                 totW += twSpend;
@@ -2205,7 +2262,7 @@ const App = () => {
       setIsSimulating(false);
     }, 50);
     return () => clearTimeout(timer);
-  }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode, usePlan, spendFloorPct, useSmile, retireAge, smileDepth, marketMode, riskEngine, histWeights, gender, useTwFloor, JSON.stringify(twSources), twLaborPenLump, twTargetMode, monthlyTarget, twDiscountRate, failOnZero, failOnShortfall, shortfallThreshold, showCompare]);
+  }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode, usePlan, spendFloorPct, useSmile, retireAge, smileDepth, marketMode, riskEngine, histWeights, gender, useTwFloor, JSON.stringify(twSources), twLaborPenLump, JSON.stringify(bigExpenses), twTargetMode, monthlyTarget, twDiscountRate, failOnZero, failOnShortfall, shortfallThreshold, showCompare]);
 
   // 軌跡圖資料：依目前世代/檢視模式即時挑選並映射；用 useMemo 讓引用穩定（只有真的換世代/模式/重算才產生新陣列 → 才觸發 AuditChart 的補間，避免其他互動誤觸）
   const auditChartTarget = useMemo(() => {
@@ -2660,7 +2717,7 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.43"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.45"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-indigo-400"
@@ -3492,7 +3549,15 @@ const App = () => {
     suffix: tr('萬/月', '×10k/mo'),
     color: "indigo",
     info: tr('你想維持的全額生活水準（實質）。台灣參考：簡約~3萬、一般~4–5萬、富足~10萬+。', 'Full lifestyle you want to maintain. TW reference: lean ~3, typical ~4–5, comfortable ~10+ ×10k/mo.')
-  }), /*#__PURE__*/React.createElement(InputSlider, {
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] font-bold text-amber-700 mb-1.5"
+  }, tr('退休大筆支出儲備（額外，隨通膨成長）', 'Large-expense reserves (extra, CPI-grown)')), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, bigExpenses.map(e => /*#__PURE__*/React.createElement(BigExpenseCard, { key: e.key, e: e, onChange: updateBigExp, tr: tr }))), /*#__PURE__*/React.createElement("div", {
+    className: "text-[9px] text-slate-500 mt-1.5 leading-snug"
+  }, tr('勾選項目會（a）以現值疊加進上方「建議應備退休金」，（b）在模擬中於指定年齡區間額外自投組提領、計入成功率壓力測試。金額為今日購買力、逐年隨通膨成長。長照／醫療文獻數字見各項 ⓘ。', 'Enabled items add to suggested capital (PV) and stress the simulation as extra withdrawals during the age window; amounts are today\u2019s purchasing power, CPI-grown.'))), /*#__PURE__*/React.createElement(InputSlider, {
     label: tr('年金估值折現率（試算用）', 'Pension discount rate'),
     value: twDiscountRate,
     setter: setTwDiscountRate,
@@ -3523,7 +3588,14 @@ const App = () => {
     }
     const pvPension = pvMonthly + pvLump;
     const totalWealthNeed = monthlyTarget * 12 / (initialWithdrawalRate / 100);
-    const need = Math.max(0, totalWealthNeed - pvPension);
+    let pvBigExp = 0;
+    for (let _t = 0; _t < years; _t++) {
+      const _age = retireAge + _t;
+      let _yr = 0;
+      for (const be of bigExpenses) { if (be.enabled && be.annual && _age >= be.startAge && _age < be.endAge) _yr += be.annual; }
+      if (_yr) pvBigExp += _yr * Math.pow(1 + d, -(_t + 1)); // 大筆支出為實質金額，以實質折現率 d 折現
+    }
+    const need = Math.max(0, totalWealthNeed + pvBigExp - pvPension);
     const fmt = n => Math.round(n).toLocaleString('en-US');
     return /*#__PURE__*/React.createElement("div", {
       className: "text-[10px] text-slate-700 space-y-1 mt-2"
@@ -3567,7 +3639,9 @@ const App = () => {
       className: "text-indigo-900"
     }, fmt(need / 10000), " ", tr('萬', '×10k'))), /*#__PURE__*/React.createElement("div", {
       className: "text-slate-400 leading-relaxed"
-    }, tr('扣除「全部年金」的現值（不只勞保）：月領以實質折現（勞保/國保為半實質≈隨通膨調整、勞退成長領到~85）；一次領是固定名目額、以名目折現（已含通膨侵蝕）。橋接期年金＝0 已用遞延反映。', 'Deducts ALL pension PV (not just labor-insurance): monthly streams real-discounted (ins/nat semi-real, pen grows to ~85); the lump is a fixed nominal amount, nominal-discounted (inflation included). Bridge deferral applied.'))), /*#__PURE__*/React.createElement("button", {
+    }, tr('扣除「全部年金」的現值（不只勞保）：月領以實質折現（勞保/國保為半實質≈隨通膨調整、勞退成長領到~85）；一次領是固定名目額、以名目折現（已含通膨侵蝕）。橋接期年金＝0 已用遞延反映。', 'Deducts ALL pension PV (not just labor-insurance): monthly streams real-discounted (ins/nat semi-real, pen grows to ~85); the lump is a fixed nominal amount, nominal-discounted (inflation included). Bridge deferral applied.')), pvBigExp > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "text-amber-600 leading-relaxed"
+    }, tr('③ 大筆支出儲備現值 ', '③ Large-expense reserve PV '), fmt(pvBigExp / 10000), tr(' 萬（旅遊／醫療／長照，已含入應備資本）', ' \u00d710k (incl. in capital)'))), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
         setInitialCapital(Math.max(1, Math.round(need / 10000)));
         setTwTargetMode(true);
@@ -3651,14 +3725,18 @@ const App = () => {
     onClick: () => setViewMode('survival'),
     className: `flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`
   }, tr('存活率', 'Survival'))), viewMode === 'withdrawal' && /*#__PURE__*/React.createElement("div", {
-    className: "bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner ml-0 sm:ml-2"
+    className: "flex items-center gap-1.5 ml-0 sm:ml-auto self-end sm:self-auto"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bg-slate-100 p-1 rounded-lg inline-flex text-[10px] md:text-xs font-bold shadow-inner"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setWithdrawalReal(true),
     className: `px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${withdrawalReal ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`
   }, tr('實質', 'Real')), /*#__PURE__*/React.createElement("button", {
     onClick: () => setWithdrawalReal(false),
     className: `px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${!withdrawalReal ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`
-  }, tr('名目', 'Nominal')))), isSimulating ? /*#__PURE__*/React.createElement("div", {
+  }, tr('\u540D\u76EE', 'Nominal'))), /*#__PURE__*/React.createElement(InfoPopover, { w: "w-60", align: "right", placement: "down", size: 12 }, /*#__PURE__*/React.createElement("div", {
+    className: "space-y-1 leading-relaxed"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", { className: "text-white" }, "實質"), "：去通膨（折回今日購買力，方便與首年比較；固定實質的傳統提領會攤平成水平線）。"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", { className: "text-white" }, "名目"), "：含通膨（帳面金額，逐年隨通膨墊高）。"))))), isSimulating ? /*#__PURE__*/React.createElement("div", {
     className: "h-[300px] md:h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg"
   }, /*#__PURE__*/React.createElement(Activity, {
     className: "animate-pulse text-indigo-400",
@@ -4049,9 +4127,9 @@ const App = () => {
     align: "center",
     iconClass: "text-blue-300",
     size: 11
-  }, tr('此欄兩個數字 — 上：守住首年購買力的年份佔比（降級的「頻率」）。下：存活宇宙中，各人生「在生活品質降低的年份、平均每年短少 %」的中位數（降級的「深度」）。基準＝維持首年購買力，高於基準的年份不計入；從不降級者顯示「幾乎不降級」。', 'Two numbers here — Top: share of years that held first-year purchasing power (downgrade frequency). Bottom: median across surviving lives of the average annual shortfall % in the years living standard dropped (downgrade depth). Baseline = holding first-year purchasing power; years above it are not counted; lives that never downgrade show almost never.'))), /*#__PURE__*/React.createElement("span", {
+  }, tr('「預期生活品質佔比」用兩個數字描述退休生活水準的穩定度。（上）維持購買力年份比例：你有多少比例的年份花得起「首年的生活水準」（去通膨後比較）——越高越穩。（下）購買力下降時的深度：在那些被迫降級的年份，平均每年少花多少 %（中位數，僅計存活宇宙；花得比首年多的年份不計）。從不降級者顯示「幾乎不降級」。⚠ 注意：開年金後，「傳統」(固定提領、不隨市場調整) 常把投組花光、之後只靠年金過活（約目標的一半），所以它的「降級深度」會很深（例如 −50%）——這不是計算錯誤，而是它「不調整、撐到見底就斷崖」的本質；動態策略則是「壞年小砍、分散多年」，深度自然淺。兩種降級性質不同：傳統是少數年份深跌、動態是多數年份淺修。', 'Two numbers describe how stable your retirement standard of living is. Top: share of years you can still afford your first-year standard (real terms). Bottom: in downgraded years, the median average annual shortfall %% (survivors only). Note: with a pension on, the fixed Traditional rule tends to drain the portfolio then coast on pension-only (~half target), so its downgrade depth looks deep (e.g. -50%) — not a bug, but its cliff nature; adaptive strategies make shallow ongoing cuts.'))), /*#__PURE__*/React.createElement("span", {
     className: "font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-blue-400/90"
-  }, tr('頻率（上）', 'Frequency (top)'), /*#__PURE__*/React.createElement("br", null), tr('＋降級深度（下）', '+ depth (bottom)')))), /*#__PURE__*/React.createElement("th", {
+  }, tr('維持購買力年份比例（上）', 'Years holding purchasing power (top)'), /*#__PURE__*/React.createElement("br", null), tr('購買力下降時的深度（下）', 'Depth when it drops (bottom)')))), /*#__PURE__*/React.createElement("th", {
     className: "px-2 py-3 text-amber-700 bg-amber-50/50 align-top"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col items-center gap-0.5"
