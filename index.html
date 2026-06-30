@@ -1206,7 +1206,7 @@ const VersionEntry = ({
     }, v.ver), /*#__PURE__*/React.createElement("span", {
       className: "text-slate-500"
     }, "\u3000", v.summary), /*#__PURE__*/React.createElement("span", {
-      className: "text-indigo-400 ml-1 whitespace-nowrap"
+      className: "text-slate-500 ml-1 whitespace-nowrap"
     }, open ? '▴ 收合' : '▾ 細節')), open && /*#__PURE__*/React.createElement("div", {
       className: "mt-1.5 ml-1 pl-2.5 border-l-2 border-slate-200 space-y-2 animate-in fade-in duration-150"
     }, v.detail.map(d => /*#__PURE__*/React.createElement("div", {
@@ -1382,6 +1382,163 @@ const PensionSourceCard = ({ s, onChange, tr }) => {
     )
   );
 };
+/* ===== TORNADO (redesign v7.55) ===== */
+/* ===== TORNADO (redesign v7.56) ===== */
+/* ===== TORNADO (redesign v7.57) ===== */
+const TORNADO_METRICS = {
+  survival: { label: '綜合存活率', en: 'Overall survival', fmt: function(v){ return v.toFixed(1) + '%'; }, get: function(st){ return 100 - st.failRate; }, worseIsHigh: false },
+  nozero:   { label: '未歸零', en: 'No ruin', fmt: function(v){ return v.toFixed(1) + '%'; }, get: function(st){ return 100 - st.pctZero; }, worseIsHigh: false },
+  noshort:  { label: '實質消費未跌破', en: 'No shortfall', fmt: function(v){ return v.toFixed(1) + '%'; }, get: function(st){ return 100 - st.pctShortfall; }, worseIsHigh: false },
+  qol:      { label: '維持購買力年份比例', en: 'Purchasing-power yrs', fmt: function(v){ return v.toFixed(1) + '%'; }, get: function(st){ return st.qolRate; }, worseIsHigh: false },
+  depth:    { label: '購買力下降深度', en: 'Downgrade depth', fmt: function(v){ return v.toFixed(1) + '%'; }, get: function(st){ return st.medianShortfall; }, worseIsHigh: true },
+  endmult:  { label: '期末累積中位倍數', en: 'Median end ×', fmt: function(v){ return v.toFixed(2) + '×'; }, get: function(st){ return st.finalMultMedian; }, worseIsHigh: false }
+};
+const TORNADO_METRIC_ORDER = ['survival', 'nozero', 'noshort', 'qol', 'depth', 'endmult'];
+const TORNADO_ROSE = '#f43f5e', TORNADO_EMER = '#10b981';
+
+const TornadoChart = memo(function TornadoChart({ data, sid, metric, tr, isMobile }) {
+  if (!data || !data.base || !data.base[sid]) return null;
+  const meta = TORNADO_METRICS[metric];
+  const base = data.base[sid][metric];
+  const goodness = function(v){ return meta.worseIsHigh ? -v : v; };
+  const rows = data.rows.map(function(r){
+    const loV = r.lo[sid][metric], hiV = r.hi[sid][metric];
+    let leftV, leftDelta, rightV, rightDelta;
+    if (goodness(loV) <= goodness(hiV)) { leftV = loV; leftDelta = -r.delta; rightV = hiV; rightDelta = r.delta; }
+    else { leftV = hiV; leftDelta = r.delta; rightV = loV; rightDelta = -r.delta; }
+    return { label: r.label, dunit: r.dunit, leftV: leftV, leftDelta: leftDelta, rightV: rightV, rightDelta: rightDelta,
+      leftLen: Math.abs(leftV - base), rightLen: Math.abs(rightV - base) };
+  });
+  rows.sort(function(a, b){ return (b.leftLen + b.rightLen) - (a.leftLen + a.rightLen); });
+  if (!rows.length) {
+    return React.createElement('div', { className: "py-6 text-center text-xs text-slate-400" }, tr('（沒有勾選任何變因）', '(No variable selected)'));
+  }
+  const maxLen = Math.max.apply(null, [0.0001].concat(rows.map(function(r){ return Math.max(r.leftLen, r.rightLen); })));
+  const fmtD = function(d, u){ return (d > 0 ? '+' : '−') + Math.abs(d) + u; };
+  const ch = [];
+
+  if (isMobile) {
+    const W = 340, cx = 170, halfPlot = 58, rowH = 50, top = 54;
+    const H = top + rows.length * rowH + 12;
+    const px = function(v){ return (v / maxLen) * halfPlot; };
+    ch.push(React.createElement('text', { key: 'bl', x: cx, y: 14, textAnchor: 'middle', fill: '#64748b', fontSize: 10 }, tr('基準', 'Base')));
+    ch.push(React.createElement('text', { key: 'bv', x: cx, y: 30, textAnchor: 'middle', fill: '#0f172a', fontSize: 13, fontWeight: 800 }, meta.fmt(base)));
+    ch.push(React.createElement('text', { key: 'hl', x: cx - 78, y: 30, textAnchor: 'middle', fill: '#e11d48', fontSize: 10.5, fontWeight: 700 }, tr('← 惡化', '← Worse')));
+    ch.push(React.createElement('text', { key: 'hr', x: cx + 78, y: 30, textAnchor: 'middle', fill: '#0f766e', fontSize: 10.5, fontWeight: 700 }, tr('改善 →', 'Better →')));
+    ch.push(React.createElement('line', { key: 'ax', x1: cx, y1: 40, x2: cx, y2: top + rows.length * rowH - 6, stroke: '#cbd5e1', strokeWidth: 1.5, strokeDasharray: '3 3' }));
+    rows.forEach(function(r, i){
+      const ryN = top + i * rowH + 10, ry = top + i * rowH + 30;
+      const lLen = px(r.leftLen), rLen = px(r.rightLen);
+      ch.push(React.createElement('text', { key: 'nm' + i, x: cx, y: ryN, textAnchor: 'middle', fill: '#0f172a', fontSize: 11, fontWeight: 700 }, r.label));
+      ch.push(React.createElement('rect', { key: 'lb' + i, x: cx - lLen, y: ry - 8, width: Math.max(1.5, lLen), height: 16, rx: 2.5, fill: TORNADO_ROSE, opacity: 0.88 }));
+      ch.push(React.createElement('rect', { key: 'rb' + i, x: cx, y: ry - 8, width: Math.max(1.5, rLen), height: 16, rx: 2.5, fill: TORNADO_EMER, opacity: 0.88 }));
+      ch.push(React.createElement('text', { key: 'lt' + i, x: cx - lLen - 5, y: ry + 3.5, textAnchor: 'end', fill: '#be123c', fontSize: 9.5 }, fmtD(r.leftDelta, r.dunit) + '　' + meta.fmt(r.leftV)));
+      ch.push(React.createElement('text', { key: 'rt' + i, x: cx + rLen + 5, y: ry + 3.5, textAnchor: 'start', fill: '#0f766e', fontSize: 9.5 }, fmtD(r.rightDelta, r.dunit) + '　' + meta.fmt(r.rightV)));
+    });
+    return React.createElement('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', style: { fontFamily: 'inherit', display: 'block', maxWidth: '440px', margin: '0 auto' } }, ch);
+  }
+
+  const W = 640, cx = 320, halfPlot = 124, leftMargin = 10, rowH = 42, top = 64;
+  const lblR = cx + halfPlot + 60;
+  const H = top + rows.length * rowH + 18;
+  const px = function(v){ return (v / maxLen) * halfPlot; };
+  ch.push(React.createElement('text', { key: 'bl', x: cx, y: 16, textAnchor: 'middle', fill: '#64748b', fontSize: 10 }, tr('基準', 'Base')));
+  ch.push(React.createElement('text', { key: 'bv', x: cx, y: 31, textAnchor: 'middle', fill: '#0f172a', fontSize: 13, fontWeight: 800 }, meta.fmt(base)));
+  ch.push(React.createElement('text', { key: 'hl', x: cx - 60, y: 50, textAnchor: 'middle', fill: '#e11d48', fontSize: 11, fontWeight: 700 }, tr('← 惡化', '← Worse')));
+  ch.push(React.createElement('text', { key: 'hr', x: cx + 60, y: 50, textAnchor: 'middle', fill: '#0f766e', fontSize: 11, fontWeight: 700 }, tr('改善 →', 'Better →')));
+  ch.push(React.createElement('line', { key: 'ax', x1: cx, y1: 56, x2: cx, y2: top + rows.length * rowH - 4, stroke: '#cbd5e1', strokeWidth: 1.5, strokeDasharray: '3 3' }));
+  rows.forEach(function(r, i){
+    const ry = top + i * rowH + rowH / 2;
+    const lLen = px(r.leftLen), rLen = px(r.rightLen);
+    ch.push(React.createElement('rect', { key: 'lb' + i, x: cx - lLen, y: ry - 8.5, width: Math.max(1.5, lLen), height: 17, rx: 2.5, fill: TORNADO_ROSE, opacity: 0.88 }));
+    ch.push(React.createElement('rect', { key: 'rb' + i, x: cx, y: ry - 8.5, width: Math.max(1.5, rLen), height: 17, rx: 2.5, fill: TORNADO_EMER, opacity: 0.88 }));
+    ch.push(React.createElement('text', { key: 'll' + i, x: leftMargin, y: ry + 3.5, textAnchor: 'start', fill: '#334155', fontSize: 11.5, fontWeight: 600 }, r.label + ' ' + fmtD(r.leftDelta, r.dunit)));
+    ch.push(React.createElement('text', { key: 'lv' + i, x: cx - lLen - 6, y: ry + 3.5, textAnchor: 'end', fill: '#be123c', fontSize: 10.5 }, meta.fmt(r.leftV)));
+    ch.push(React.createElement('text', { key: 'rl' + i, x: lblR, y: ry + 3.5, textAnchor: 'start', fill: '#334155', fontSize: 11.5, fontWeight: 600 }, r.label + ' ' + fmtD(r.rightDelta, r.dunit)));
+    ch.push(React.createElement('text', { key: 'rv' + i, x: cx + rLen + 6, y: ry + 3.5, textAnchor: 'start', fill: '#0f766e', fontSize: 10.5 }, meta.fmt(r.rightV)));
+  });
+  return React.createElement('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', style: { fontFamily: 'inherit', display: 'block', maxWidth: '720px', margin: '0 auto' } }, ch);
+});
+
+const TornadoPanel = ({ data, panel, idx, onChange, onRemove, canRemove, strategies, sName, tr, isMobile }) => {
+  const grpLbl = "text-[10px] md:text-[11px] text-slate-400 font-bold mr-0.5 shrink-0";
+  return React.createElement('div', { className: "rounded-lg border border-slate-200 bg-slate-50/40 p-2.5 md:p-3" },
+    React.createElement('div', { className: "flex justify-between items-start gap-2 mb-2.5" },
+      React.createElement('div', { className: "flex-1 space-y-1.5 min-w-0" },
+        React.createElement('div', { className: "flex flex-wrap items-center gap-1" },
+          React.createElement('span', { className: grpLbl }, tr('模型', 'Model')),
+          strategies.map(function(s){
+            const on = panel.sid === s.id;
+            return React.createElement('button', { key: s.id, onClick: function(){ onChange(idx, { sid: s.id }); },
+              className: "flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] md:text-[11px] font-bold transition-colors border " + (on ? "shadow-sm" : "bg-white border-slate-200 hover:bg-slate-50"),
+              style: on ? { backgroundColor: s.color + '1f', borderColor: s.color, color: s.color } : { color: '#64748b' } },
+              React.createElement('span', { className: "inline-flex shrink-0", style: { color: s.color } }, s.icon ? React.cloneElement(s.icon, { size: 13 }) : null),
+              sName(s));
+          })),
+        React.createElement('div', { className: "flex flex-wrap items-center gap-1" },
+          React.createElement('span', { className: grpLbl }, tr('指標', 'Metric')),
+          TORNADO_METRIC_ORDER.map(function(k){
+            const on = panel.metric === k;
+            return React.createElement('button', { key: k, onClick: function(){ onChange(idx, { metric: k }); },
+              className: "px-2 py-0.5 rounded-md text-[10px] md:text-[11px] font-bold transition-colors " + (on ? "bg-slate-700 text-white" : "bg-white text-slate-500 border border-slate-200 hover:bg-slate-100") },
+              tr(TORNADO_METRICS[k].label, TORNADO_METRICS[k].en));
+          }))),
+      canRemove && React.createElement('button', { onClick: function(){ onRemove(idx); }, className: "text-slate-400 hover:text-rose-500 text-sm font-bold px-1.5 leading-none shrink-0", title: tr('移除', 'Remove') }, '✕')),
+    React.createElement(TornadoChart, { data: data, sid: panel.sid, metric: panel.metric, tr: tr, isMobile: isMobile }));
+};
+
+const TornadoCard = ({ data, busy, onCompute, deltas, setDeltas, enabled, setEnabled, panels, setPanels, strategies, sName, tr }) => {
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 640);
+  useEffect(function(){
+    const h = function(){ setIsMobile(window.innerWidth < 640); };
+    window.addEventListener('resize', h);
+    return function(){ window.removeEventListener('resize', h); };
+  }, []);
+  const updPanel = function(idx, patch){ setPanels(function(ps){ return ps.map(function(p, i){ return i === idx ? Object.assign({}, p, patch) : p; }); }); };
+  const removePanel = function(idx){ setPanels(function(ps){ return ps.filter(function(_, i){ return i !== idx; }); }); };
+  const usedSids = panels.map(function(p){ return p.sid; });
+  const usedMetrics = panels.map(function(p){ return p.metric; });
+  const nextSid = function(){ const u = strategies.find(function(s){ return usedSids.indexOf(s.id) < 0; }); return u ? u.id : strategies[0].id; };
+  const nextMetric = function(){ const u = TORNADO_METRIC_ORDER.find(function(k){ return usedMetrics.indexOf(k) < 0; }); return u || TORNADO_METRIC_ORDER[0]; };
+  const expandStrategy = function(){ setPanels(function(ps){ return ps.concat([{ key: Date.now(), sid: nextSid(), metric: ps[ps.length - 1].metric }]); }); };
+  const expandMetric = function(){ setPanels(function(ps){ return ps.concat([{ key: Date.now(), sid: ps[ps.length - 1].sid, metric: nextMetric() }]); }); };
+  const dItems = [
+    { k: 'cagr', label: tr('股票報酬', 'Equity'), step: 0.5, unit: '%' },
+    { k: 'vol', label: tr('波動', 'Vol'), step: 1, unit: '%' },
+    { k: 'wr', label: tr('提領率', 'WR'), step: 0.25, unit: '%' },
+    { k: 'years', label: tr('模擬年限', 'Years'), step: 5, unit: tr('年', 'y') },
+    { k: 'retireAge', label: tr('退休年齡', 'Age'), step: 5, unit: tr('歲', 'y/o') },
+    { k: 'inflation', label: tr('通膨', 'Infl'), step: 0.25, unit: '%' },
+    { k: 'capPct', label: tr('資本', 'Cap'), step: 10, unit: '%' }
+  ];
+  return React.createElement('div', { className: "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden" },
+    React.createElement('div', { className: "bg-slate-50 px-4 md:px-5 py-3 md:py-4 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2" },
+      React.createElement('h3', { className: "font-extrabold text-slate-800 text-sm md:text-base" }, tr('敏感度龍捲風圖', 'Sensitivity tornado')),
+      React.createElement('button', { onClick: onCompute, disabled: busy, className: "text-[11px] md:text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-50 transition-colors shrink-0" },
+        busy ? tr('計算中…', 'Computing…') : (data ? tr('更新', 'Update') : tr('計算龍捲風圖', 'Compute tornado')))),
+    React.createElement('div', { className: "p-3 md:p-4 space-y-3" },
+      React.createElement('div', { className: "flex flex-wrap items-center gap-x-3 gap-y-1.5" },
+        React.createElement('span', { className: "text-[10px] md:text-[11px] text-slate-400 font-bold" }, tr('變因（勾選比較）／幅度 ±', 'Variables / Δ ±')),
+        dItems.map(function(it){
+          const on = !!enabled[it.k];
+          return React.createElement('div', { key: it.k, className: "flex items-center gap-1 text-[10px] md:text-[11px] " + (on ? "text-slate-600" : "text-slate-300") },
+            React.createElement('label', { className: "flex items-center gap-1 cursor-pointer select-none" },
+              React.createElement('input', { type: 'checkbox', checked: on, onChange: function(){ setEnabled(function(en){ const o = Object.assign({}, en); o[it.k] = !o[it.k]; return o; }); }, className: "accent-slate-600 w-3 h-3" }),
+              React.createElement('span', null, it.label)),
+            React.createElement('input', { type: 'number', value: deltas[it.k], step: it.step, min: 0, disabled: !on,
+              onChange: function(e){ const v = parseFloat(e.target.value); setDeltas(function(d){ const o = Object.assign({}, d); o[it.k] = isNaN(v) ? 0 : v; return o; }); },
+              className: "w-12 px-1 py-0.5 rounded border text-right text-[11px] focus:outline-none " + (on ? "border-slate-300 text-slate-700 focus:border-slate-400" : "border-slate-200 text-slate-300 bg-slate-50") }),
+            React.createElement('span', { className: on ? "text-slate-400" : "text-slate-300" }, it.unit));
+        })),
+      busy ? React.createElement('div', { className: "py-6 text-center text-xs text-slate-400" }, tr('計算中…（基準＋每個變因各 ±Δ 重跑）', 'Computing…'))
+        : (data ? React.createElement('div', { className: "space-y-3" },
+            panels.map(function(p, idx){ return React.createElement(TornadoPanel, { key: p.key, data: data, panel: p, idx: idx, onChange: updPanel, onRemove: removePanel, canRemove: panels.length > 1, strategies: strategies, sName: sName, tr: tr, isMobile: isMobile }); }),
+            React.createElement('div', { className: "flex flex-wrap gap-2 pt-0.5" },
+              React.createElement('button', { onClick: expandStrategy, disabled: panels.length >= strategies.length, className: "text-[11px] font-bold px-2.5 py-1 rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors" }, tr('＋ 固定指標·展開模型', '+ Expand model')),
+              React.createElement('button', { onClick: expandMetric, disabled: panels.length >= 6, className: "text-[11px] font-bold px-2.5 py-1 rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors" }, tr('＋ 固定模型·展開指標', '+ Expand metric'))))
+          : React.createElement('div', { className: "py-6 text-center text-xs text-slate-400" }, tr('按「計算龍捲風圖」：對每個變因 ±Δ 重跑模擬，看哪個方向改善／惡化哪個指標。', 'Click compute to run the sensitivity sweep.')))));
+};
+
 const App = () => {
   const [activeTab, setActiveTab] = useState('monteCarlo');
   const [auditStrategy, setAuditStrategy] = useState('guyton');
@@ -1499,6 +1656,12 @@ const App = () => {
   const [viewMode, setViewMode] = useState('withdrawal');
   const [withdrawalReal, setWithdrawalReal] = useState(true); // 提領圖單位：true=實質(購買力,預設) / false=名目
   const [auditChartMode, setAuditChartMode] = useState('netWorth');
+  const [tornadoData, setTornadoData] = useState(null);
+  const [tornadoBusy, setTornadoBusy] = useState(false);
+  const [tornadoDeltas, setTornadoDeltas] = useState({ cagr: 1, vol: 2, wr: 0.5, years: 5, retireAge: 5, inflation: 0.5, capPct: 10 });
+  const [tornadoEnabled, setTornadoEnabled] = useState({ cagr: true, vol: true, wr: true, years: true, retireAge: true, inflation: true, capPct: true });
+  const [tornadoPanels, setTornadoPanels] = useState([{ key: 0, sid: 'baseline', metric: 'survival' }]);
+  const simFnRef = useRef(null);
   const [simResults, setSimResults] = useState(null);
   const [compareResults, setCompareResults] = useState(null);
   const [showCompare, setShowCompare] = useState(false);
@@ -1506,6 +1669,62 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [{
+    ver: 'v7.58',
+    changes: ['龍捲風圖步進鈕幅度調整：模擬年限 ±5年、退休年齡 ±5歲、資本 ±10%（每按一下上下鈕的增減量）。'],
+  }, {
+    ver: 'v7.57',
+    changes: ['【變因可勾選】龍捲風圖的變因改為可勾選（預設全選），只比較有勾選的變因；取消勾選即從圖中移除並自動重算。',
+'【左軸對齊】左側變因標籤改為靠左對齊（齊頭）。',
+'【用字】向下展開按鈕「策略」一律改為「模型」（固定指標·展開模型／固定模型·展開指標）。',
+'【預設幅度調整】股票報酬 ±1%、報酬波動 ±2%、模擬年限 ±5年、退休年齡 ±5歲（提領率／通膨 ±0.5%、資本 ±10% 不變）。'],
+  }, {
+    ver: 'v7.56',
+    changes: ['【龍捲風圖】策略按鈕改用各模型代表色＋圖示（與參數區「比較模型」一致、好辨識），按鈕群前加「模型／指標」標示。',
+'【新增變因】模擬年限（±年）與退休年齡（±歲）；可控變因順序＝股票報酬→波動→提領率→模擬年限→退休年齡→通膨→資本。引擎讓 years／retireAge 可被 ov 覆寫（無覆寫時與原本逐位元相同、哨兵不變）。',
+'【排版】表頭「基準」與「惡化／改善」不再重疊；變因標籤外推、數值置於長條外端；以 maxWidth 限制避免寬螢幕字級被放大失衡。',
+'【即時更新】調整任一變因 Δ 後自動重算（不必按更新）；切換模型／指標按鈕即時生效。',
+'【版本紀錄】將 v7.45–v7.53 折成可收合世代，列表更精簡。'],
+  }, {
+    ver: 'v7.55',
+    changes: ['【龍捲風排版修正】(1) 表頭「基準 X%」與「← 惡化／改善 →」分開、不再重疊；(2) 變因標籤（股票報酬 ±Δ）外推到固定欄、結果數值移到長條外端（讀法：變因±Δ → 數值 → 長條）；(3) 下拉選單改為按鈕群（策略／指標各一排，直覺易點）。',
+'【手機版】新增 RWD：窄螢幕（<640px）自動切換為緊湊佈局（變因名置中於該列上方、Δ＋數值貼長條兩端、字級放大），桌面維持左右標籤式。'],
+  }, {
+    ver: 'v7.54',
+    changes: ['【龍捲風圖全面重寫】改為「左＝惡化／右＝改善」分邊：每根長條左右各標「變因 ±Δ」與結果值，一眼看出變因往哪個方向有利；長度＝指標變動幅度、依總擺幅由大到小排序（漏斗狀）。',
+'【六指標】綜合存活率／未歸零／實質消費未跌破／維持購買力年份比例／購買力下降深度／期末累積中位倍數（拿掉 CV）。「購買力下降深度」直接採結算報告同一個 medianShortfall，兩處一致。',
+'【可調 Δ】股票報酬／提領率／波動／通膨／資本的 ±Δ 都能微調，按「更新」以新幅度重算（左右軸標籤同步）。',
+'【向下展開】新增「固定指標·展開策略」與「固定策略·展開指標」：每按一次在下方多開一張小圖、自動帶入下一個未選的策略或指標；每張小圖各自仍可手動換策略／指標、可移除。',
+'【風格】微笑曲線等殘留的紫色（violet）改為中性 slate；統一「計算龍捲風圖／更新」與「開始比較」按鈕的字級與字重；龍捲風配色採柔色 emerald／rose 表改善／惡化、字型對齊全站。'],
+  }, {
+    ver: 'v7.45–v7.53',
+    summary: '全站中性 slate 化與龍捲風圖前期改版：兩張分析卡與所有按鈕統一 slate（移除 indigo／violet 強調色）、配合模型B 校正口徑（年金月入／年金現金流說明卡）、結算報告降級顯示與欄位整理（移除期望存活年）、龍捲風圖由初版（敏感度 ov 覆寫引擎）演進到左右惡化／改善軸＋六指標＋向下展開＋可調 Δ。',
+    detail: [{
+    ver: 'v7.53',
+    changes: ['【全站風格統一】把全站作為「動作／強調色」的 indigo 一律改為中性 slate；語意色全部保留（成功 emerald／失敗 rose／策略色／綠色說明卡／sky·amber·emerald·pink 輸入色塊不變）。涵蓋「重抽宇宙」「套用」等主鈕、市場模式／性別分段鈕的 active、開關 on 態、一般輸入欄底色。',
+'【按鈕一致】「月領 ⇄ 一次領 比較」的「開始比較」鈕改為與「更新／計算」一致的深 slate 底白字（先前關閉時為白底，視覺不一致）。'],
+  }, {
+    ver: 'v7.52',
+    changes: ['【UI 統一】「敏感度龍捲風圖」與「月領 ⇄ 一次領 比較」改為與「壓力測試結算報告」一致的中性 slate 卡片風（白底＋slate 邊框／標題列），兩張卡動作鈕也統一為 slate 主鈕（先前 indigo 風格不一致）。',
+'【模型B 口徑校正】配合 v7.50：年金不再自動當消費底，「失敗時月保底」改為中性「年金月入」；「年金處理模型」說明卡由「保底＋裁量」改寫為「年金現金流」（沒花完留投組複利、消費下限交給生活費下限）。',
+'【修正】結算報告降級欄四捨五入後出現「降級時平均 －0.0%」應顯示「幾乎不降級」（門檻 >0 改為 ≥0.05%）。',
+'【調整】移除結算報告「存活率」欄的「期望存活年」（多為年數、僅有失敗時才有區別、與成功率重疊），副標改為「失敗原因（歸零｜跌破）」。'],
+  }, {
+    ver: 'v7.51',
+    changes: ['【UI：分析卡統一統計風】「敏感度龍捲風圖」與「月領 ⇄ 一次領 並排比較（勞退）」改為一致的 indigo 分析面板樣式（indigo 邊框＋淺 indigo 標題列、indigo 動作鈕），與白底資料卡明確區隔、標示為互動分析工具。',
+'【UI：月領 ⇄ 一次領 比較結果美化】比較表字級放大（9px→10／11px）、加大儲存格留白與圓角、分隔線加深，月領／一次領對比更清楚易讀。'],
+  }, {
+    ver: 'v7.50',
+    changes: ['【模型修正：年金不再強制墊高消費（關注點分離）】「開地板」分支原有一行 want = max(策略提領, 當年年金)，強迫每年至少花掉整筆年金、不能少花——與引擎文件「年金沒花掉便隨投組複利」矛盾，並導致「年金 ≥ 各策略想領」時（投組相對年金小）四策略全被頂到「花年金」而完全同形（成功率/CV/期末倍數一致、趨勢圖四線重疊只見一條）。已移除該行：年金純為流進投組的現金流，沒花完的（含當年年金）留在投組以市場報酬複利、提領純照策略 → 四策略恢復分化（實測 cap 500：期末中位 5.5／4.7／3.5／3.4×、CV 與消費亦分開）。消費下限改由顯式「生活費下限」（預設關）負責，要保證消費底者自行開啟。',
+'【沿用既有正確性】此為「開地板」分支的行為改動；關閉地板（含高斯哨兵路徑）逐元不受影響：哨兵 [29.2,30,30,30] 不變。生活費下限（usePlan）邏輯未動、仍可頂住消費（已驗）；一次領注入、勞退~85停發、everZeroed/跌破 失敗判定等其餘機制全保留。'],
+  }, {
+    ver: 'v7.49',
+    changes: ['【修正：龍捲風圖按下後整頁空白】TornadoCard（模組層級元件）引用了定義在 App 元件內的 sName，作用域取不到 → 一旦填入資料、渲染策略選擇器就拋 ReferenceError，production React 會卸載整棵樹造成白屏（初始載入因尚未渲染選擇器故正常）。改為把 sName 以 prop 傳入。已用 jsdom 對全部 策略×指標 共 12 組渲染驗證，0 失敗、SVG 正常。'],
+  }, {
+    ver: 'v7.48',
+    changes: ['【修正：期望存活年消失】結算報告「存活率」欄副標寫「（附：期望存活年）」，但欄內實際顯示的是「（重疊 %）」、期望存活年（已在 stat.expectedSurvivalYears 算好）從未被渲染。現重構為三層：存活率（大數）＋失敗原因「歸零%｜跌破%」（上）＋「期望存活 X.X 年」（下）；並於欄首加浮層，說明資產歸零與實質消費跌破可能落在同一條人生、故歸零%＋跌破%相加會超過失敗率，存活率已扣重疊不重複計。',
+'【新增：敏感度龍捲風圖】置於「資產與提領趨勢」下方。固定同一組市場路徑（同 simSeed），逐一把 股票報酬±1.5%／提領率±0.5%／報酬波動±3%／通膨±0.5%／初始資本±10% 上下撥動，量化各參數對「所選策略·所選指標」的影響並由大到小排序（漏斗狀）。可切換聚焦策略（複數 model 各看罩門）與輸出指標（成功率／期望可支出／降級深度）——百分比型策略幾乎不歸零，其風險要看「可支出／降級深度」而非成功率。單因子（OAT）、不含交互作用；歷史回測下報酬／波動撥動對重抽無效，故高斯模式最有意義。為效能採「按鈕按需計算」。',
+'【沿用既有正確性】引擎以 ov 參數做 override（cagr／volatility／inflation／提領率／初始資本 字界替換＋resolver），override 為空時與原行為逐元相同：高斯哨兵 [29.2,30,30,30] 不變、null override 各策略 failRate 逐元相等；方向性已驗（報酬↑→失敗↓、提領率↑與波動↑→失敗↑）。years（26 處引用）暫不納入擾動。'],
+  }, {
     ver: 'v7.47',
     changes: ['【年金來源：月領⇄年領切換自動換算】先前點「月領／年領」只改領法、不動金額，導致同一個數字被改口徑（月領 19,000 點成年領＝靜默變 19,000／年＝原本的 1/12）。現改為月↔年互切時自動 ×12／÷12，維持真實年現金流不變；一次領為「存量」不換算。',
 '【年領金額顯示修正】年領金額欄 scale 由 1 改為 10000、單位改「萬／年」（與一次領一致），原本拉到最大顯示 7 位數 2,400,000 會在窄欄被裁切（誤看成 24000）；現顯示「240 萬／年」不裁切。引擎讀值不變（年領仍為名目年金額）。',
@@ -1516,6 +1735,7 @@ const App = () => {
   }, {
     ver: 'v7.45',
     changes: ['\u3010UI\uFF1A\u5BE6\u8CEA/\u540D\u76EE\u5207\u63DB\u3011\u300C\u8CC7\u7522\u8207\u63D0\u9818\u8DA8\u52E2\u300D\u7684\u5BE6\u8CEA/\u540D\u76EE\u5207\u63DB\u5728\u96FB\u8166\u7248\u6539\u56DE\u9760\u53F3\u3001\u24D8 \u6D6E\u5C64\u7DCA\u9130\u6309\u9215\uFF1B\u6D6E\u5C64\u300C\u5BE6\u8CEA/\u540D\u76EE\u300D\u5B57\u8272\u7531\u6DF1\u85CD\u6539\u767D(\u6613\u8B80)\uFF1B\u624B\u6A5F\u7248\u6539 inline \u8F03\u7DCA\u6E4A\u3002', '\u3010\u7248\u672C\u7D00\u9304\u6574\u7406\u3011\u628A v7.34\u2013v7.44 \u5171 11 \u7B46\u5E73\u92EA\u7248\u6298\u6210\u4E00\u500B\u53EF\u5C55\u958B\u5206\u4EE3(\u6458\u8981\uFF0B\u25BE\u7D30\u7BC0)\uFF0C\u8207 v7.18\u2013v7.33 \u7B49\u820A\u5206\u4EE3\u4E00\u81F4\uFF1B\u9010\u7248\u7D30\u7BC0\u5B8C\u6574\u4FDD\u7559\u3001\u4E0D\u6539\u5BEB\u6B77\u53F2\u3002']
+  }]
   }, {
     ver: 'v7.34\u2013v7.44',
     summary: '\u5E74\u91D1\u6A21\u578B\u6210\u719F\u8207\u529F\u80FD\u64F4\u5145\uFF1A\u6838\u5FC3\u6539\u5BEB\u70BA\u300C\u5E74\u91D1\u704C\u9032\u6295\u7D44\u3001\u63D0\u9818\u7167\u6A21\u578B\u300D(\u53D6\u4EE3\u5730\u677F\u62B5\u6E1B\u7684\u96D9\u91CD\u8A08\u7B97\u8207\u7B56\u7565\u4E0D\u5C0D\u7A31)\uFF1B\u5931\u6557\u6539\u96D9\u56E0\u5B50(\u8CC7\u7522\u6B78\u96F6\uFF0B\u5BE6\u8CEA\u6D88\u8CBB\u8DCC\u7834\uFF0C\u9580\u6ABB\u53EF\u52FE\u9078\u3001\u4EE5\u806F\u96C6\u8A08\u7B97)\u3001\u5FAE\u7B11\u66F2\u7DDA\u00D7\u8DCC\u7834\u9580\u6ABB\u57FA\u6E96\u4FEE\u6B63\u3001\u5168\u9762\u5BE9\u8A08\u8207\u6B7B\u78BC\u6E05\u7406\uFF1B\u5E74\u91D1\u6539\u70BA\u53EF\u81EA\u7531\u52FE\u9078\u7684\u591A\u4F86\u6E90\u5EFA\u69CB\u5668(\u52DE\u4FDD\uFF0F\u52DE\u9000\uFF0F\u570B\u4FDD\uFF0F\u516C\u4FDD\uFF0F\u9000\u64AB\uFF0F\u5176\u4ED6\uFF0C\u5404\u8A2D\u9818\u6CD5\uFF0F\u91D1\u984D\uFF0F\u5E74\u9F61\uFF0F\u671F\u9650\uFF0F\u6210\u9577)\u3001\u61C9\u5099\u9000\u4F11\u91D1\u6539\u540D\u76EE\u9663\u5217\u6298\u73FE\uFF1B\u65B0\u589E\u9000\u4F11\u5927\u7B46\u652F\u51FA\u5132\u5099(\u65C5\u904A\uFF0F\u91AB\u7642\uFF0F\u9577\u7167)\u540C\u6642\u63A5\u5165\u61C9\u5099\u73FE\u503C\u8207\u6A21\u64EC\u58D3\u529B\u6E2C\u8A66\uFF1B\u7528\u8A9E\u300C\u5730\u677F\u300D\u5168\u9762\u6539\u7A31\u300C\u9000\u4F11\u5E74\u91D1\uFF0F\u5E74\u91D1\u73FE\u91D1\u6D41\uFF0F\u4FDD\u5E95\u300D\uFF1B\u591A\u9805\u8AAA\u660E\u6D6E\u5C64\u8207\u624B\u6A5F\u7248\u9762\u91D0\u6E05\u3002',
@@ -1787,12 +2007,19 @@ const App = () => {
   useEffect(() => {
     setIsSimulating(true);
     const timer = setTimeout(() => {
-      const runSimulationWithReturns = (penModeOverride) => {
+      const runSimulationWithReturns = (penModeOverride, ov = {}) => {
         const effSources = penModeOverride ? twSources.map(s => s.key === 'laborPen' ? { ...s, mode: penModeOverride, amount: penModeOverride === 'lump' ? twLaborPenLump : s.amount } : s) : twSources;
-        seedRng(simSeed); // 可重現：同 simSeed → 同一組亂數路徑;按「重新模擬」會 simSeed+1 換一組
+        seedRng(simSeed);
+        const _cagr = ov.cagr != null ? ov.cagr : cagr;
+        const _vol = ov.volatility != null ? ov.volatility : volatility;
+        const _inflation = ov.inflation != null ? ov.inflation : inflation;
+        const _wr = ov.initialWithdrawalRate != null ? ov.initialWithdrawalRate : initialWithdrawalRate;
+        const _cap = ov.initialCapital != null ? ov.initialCapital : initialCapital; // 可重現：同 simSeed → 同一組亂數路徑;按「重新模擬」會 simSeed+1 換一組
+        const _years = ov.years != null ? ov.years : years;
+        const _retireAge = ov.retireAge != null ? ov.retireAge : retireAge;
         // 目標支出模式（需開啟台灣地板）：支出目標錨定「月目標×12」、與資本脫鉤（年金照常灌進投組、提領照模型）。關閉時 = 原行為（支出目標=資本×提領率）。
         const targetMode = useTwFloor && twTargetMode;
-        const initialWithdrawal = targetMode ? monthlyTarget * 12 / 10000 : initialCapital * (initialWithdrawalRate / 100); // baseline 支出目標（萬）
+        const initialWithdrawal = targetMode ? monthlyTarget * 12 / 10000 : _cap * (_wr / 100); // baseline 支出目標（萬）
         // 台灣年金地板參數（useTwFloor=false → computeTwFloor 回傳全 0 → 引擎等價於原行為）
         const twParams = {
           enabled: useTwFloor,
@@ -1800,11 +2027,11 @@ const App = () => {
         };
 
         // 市場模式：sim(你的假設;高斯或歷史抽樣) | hist(純歷史回測,多資產重疊實際窗)
-        const targetCagr = cagr / 100,
-          targetInfl = inflation / 100;
+        const targetCagr = _cagr / 100,
+          targetInfl = _inflation / 100;
         const useBootstrap = marketMode === 'sim' && riskEngine === 'bootstrap';
         const blendForBoot = useBootstrap ? histBlendAB(stockRatio) : null;
-        const histWindows = marketMode === 'hist' ? histOverlappingWindows(histWeights, years) : null;
+        const histWindows = marketMode === 'hist' ? histOverlappingWindows(histWeights, _years) : null;
         const M = histWindows ? Math.max(1, histWindows.length) : simCount; // 有效路徑數（歷史回測=可用世代數）
         // 深度稽核要擷取哪一條路徑：歷史模式可逐世代檢視（夾在有效範圍內），其餘維持第 0 條
         // 一次把所有世代的稽核資料都算好（歷史模式 M≤69 條；蒙地卡羅只存第 0 條）→ 切換世代時純即時挑選，不重算、不閃 loading
@@ -1822,10 +2049,10 @@ const App = () => {
           endowment: []
         };
         const survivals = {
-          baseline: new Array(years + 1).fill(0),
-          vanguard: new Array(years + 1).fill(0),
-          guyton: new Array(years + 1).fill(0),
-          endowment: new Array(years + 1).fill(0)
+          baseline: new Array(_years + 1).fill(0),
+          vanguard: new Array(_years + 1).fill(0),
+          guyton: new Array(_years + 1).fill(0),
+          endowment: new Array(_years + 1).fill(0)
         };
         const mkTotal = () => ({
           dead: 0,
@@ -1853,10 +2080,10 @@ const App = () => {
           guyton: mkTotal(),
           endowment: mkTotal()
         };
-        const bigExpReal = new Array(years).fill(0);
+        const bigExpReal = new Array(_years).fill(0);
         for (const be of bigExpenses) {
           if (!be.enabled || !be.annual) continue;
-          for (let t = 0; t < years; t++) { const age = retireAge + t; if (age >= be.startAge && age < be.endAge) bigExpReal[t] += be.annual / 10000; } // 元→萬(對齊引擎單位)
+          for (let t = 0; t < _years; t++) { const age = _retireAge + t; if (age >= be.startAge && age < be.endAge) bigExpReal[t] += be.annual / 10000; } // 元→萬(對齊引擎單位)
         }
         const auditAll = [];
         const universePerformances = [];
@@ -1874,15 +2101,15 @@ const App = () => {
             pathInflRates = histWindows[i].infls;
           } else if (useBootstrap) {
             // Mode A：歷史抽樣（stationary block）+ 對數重置到你的目標報酬/通膨
-            const bp = histBootstrapPath(blendForBoot, years, targetCagr, targetInfl, BOOT_MEAN_BLOCK);
+            const bp = histBootstrapPath(blendForBoot, _years, targetCagr, targetInfl, BOOT_MEAN_BLOCK);
             pathRets = bp.rets;
             pathInflRates = bp.infls;
           } else {
             // 參數化高斯（原行為，完全不變）
             const rawReturns = [];
-            for (let t = 0; t < years; t++) {
+            for (let t = 0; t < _years; t++) {
               const Z = randn_bm();
-              let r = cagr / 100 + volatility / 100 * Z;
+              let r = _cagr / 100 + _vol / 100 * Z;
               if (stressMode === 'crash' && t < 3) {
                 r = -0.15;
               } // 崩盤情境：前三年釘 -15%
@@ -1895,11 +2122,11 @@ const App = () => {
             pathRets = rawReturns;
             pathInflRates = null; // 通膨為固定率
           }
-          for (let t = 0; t < years; t++) {
+          for (let t = 0; t < _years; t++) {
             const r = pathRets[t];
             marketReturns.push(r);
             pathMarketReturn *= 1 + r;
-            currentInflFactor *= 1 + (pathInflRates ? pathInflRates[t] : inflation / 100);
+            currentInflFactor *= 1 + (pathInflRates ? pathInflRates[t] : _inflation / 100);
             inflFactors.push(currentInflFactor);
             if (captureAll || i === 0) {
               (auditAll[i] = auditAll[i] || []).push({
@@ -1922,14 +2149,14 @@ const App = () => {
 
           // 台灣年金地板：逐路徑（各路徑通膨不同）算名目年金淨金流與一次領注入。關閉時全 0。
           // computeTwFloor 以「元」回傳；引擎幣值單位為「萬」（initialWithdrawal/nw 皆為萬），故除以 10000 轉換，否則 gap=max(0,w−floor) 會因量級差而恆為 0
-          const _twF = computeTwFloor(twParams, retireAge, gender, years, inflFactors);
+          const _twF = computeTwFloor(twParams, _retireAge, gender, _years, inflFactors);
           const twFloorNom = _twF.floor.map(x => x / 10000);
           const twLumpNom = _twF.lump.map(x => x / 10000);
 
           // 一次領（lump）：請領當年丟進投組的一筆現金（見下方 nw += twLumpNom[t]），不預先計入，故注入當年淨值乾淨跳升。floor 已含勞退成長與~85跳階。
           // 地板＋裁量：投組只支應裁量、不把年金現值當可花財富（不再債券化）
           const simulateStrategy = (stratId, logicFn) => {
-            let nw = initialCapital;
+            let nw = _cap;
             let w = 0;
             let dead = false;
             const pathNW = [];
@@ -1941,18 +2168,17 @@ const App = () => {
             let ruinYear = 0;
             let everZeroed = false, everShortfall = false; // 新失敗判定旗標 // 破產發生的年序（0=未破產）
 
-            for (let t = 0; t < years; t++) {
+            for (let t = 0; t < _years; t++) {
               // 台灣年金＝現金流入投組：一次領於請領年、月領逐年注入；策略隨後對「含年金的投組」提領。關閉時全 0、哨兵路徑不變。
               if (useTwFloor) {
                 if (twLumpNom[t] > 0) nw += twLumpNom[t];
                 nw += twFloorNom[t];
               }
-              const pensionIn = useTwFloor ? twFloorNom[t] : 0;
               let currentNote = '';
               const expectedRealW = t === 0 ? initialWithdrawal : initialWithdrawal * inflFactors[t - 1];
               const bigExpNom = bigExpReal[t] ? bigExpReal[t] * (t === 0 ? 1 : inflFactors[t - 1]) : 0; // 大筆支出：實質金額隨物價成長為名目，額外自投組提領
               // 微笑曲線：依年齡彎曲「目標線」（整個模型僅此一處改動）;未開啟時 smileT === expectedRealW(水平)
-              const smileT = useSmile ? expectedRealW * smileFactor(retireAge + t, retireAge, smileDepth) : expectedRealW;
+              const smileT = useSmile ? expectedRealW * smileFactor(_retireAge + t, _retireAge, smileDepth) : expectedRealW;
               let baseW = 0; // 策略在「未彎基準」下決定的提領（餵回 pathBaseW，供依前一年的護欄使用，不含微笑→不累乘）
               if (!dead) {
                 // 地板＋裁量：策略一律對「流動投組」做百分比/護欄，不把年金現值當可花財富。
@@ -1961,7 +2187,7 @@ const App = () => {
                 baseW = res.w;
                 currentNote = res.note;
                 // 微笑曲線：實際消費 = 策略基準 × 年齡乘數（只縮放「實際支出」，省下的留在投組→存活率/期末上升）
-                w = useSmile ? baseW * smileFactor(retireAge + t, retireAge, smileDepth) : baseW;
+                w = useSmile ? baseW * smileFactor(_retireAge + t, _retireAge, smileDepth) : baseW;
               } else {
                 w = 0;
                 currentNote = '資產耗盡';
@@ -1969,7 +2195,7 @@ const App = () => {
               pathBaseW.push(baseW); // 與 t 對齊;早夭年推 0
 
               // 地板處理＝年金灌進投組、提領純照模型（僅台灣地板開啟時生效；關閉時 twDraw=twSpend=w，逐元等價、哨兵不變）：
-              //   年金已於年初灌入 nw；策略對「含年金的投組」算出 w。提領 want=max(0,w)，保底至少花得到當年月年金（want≥pensionIn）。
+              //   年金已於年初灌入 nw；策略對「含年金的投組」算出 w。提領 want=max(0,w)＝純照策略；沒花完的（含當年年金）留在投組複利（模型B）。消費下限由顯式「生活費下限」負責。
               //   want 受顯式生活費下限墊高、並封頂於 nw（投組見底時 want=nw、everZeroed）。twSpend≡twDraw（年金已在投組內、不分地板/裁量兩層）。
               let twDraw, twSpend;
               if (!useTwFloor) {
@@ -1989,7 +2215,7 @@ const App = () => {
                   nw -= twDraw + bigExpNom;
                   if (nw <= 0) {
                     nw = 0;
-                    if (t < years - 1) { dead = true; ruinYear = t + 1; }
+                    if (t < _years - 1) { dead = true; ruinYear = t + 1; }
                   } else {
                     nw *= 1 + marketReturns[t];
                   }
@@ -1999,7 +2225,7 @@ const App = () => {
               } else {
                 // ── 年金地板＝現金流入投組、提領純照模型（年金已在 nw 內，twSpend≡twDraw）──
                 let want = Math.max(0, w);                  // 策略對「含年金的投組」算出的提領
-                if (want < pensionIn) want = pensionIn;     // 防呆：至少花得到當年灌入的年金，不再投資保證收入
+                // [v7.50 模型B] 年金純為投組現金流：沒花完的（含當年年金）留在投組以市場報酬複利、提領純照策略；消費下限改由顯式「生活費下限」(usePlan) 負責，年金不再強制墊高消費。
                 if (usePlan) {                              // 顯式生活費下限（與年金脫鉤的使用者消費底）
                   const spendFloorNom = expectedRealW * (spendFloorPct / 100);
                   if (want < spendFloorNom - 0.1) { want = spendFloorNom; currentNote += ' | 🛡️生活費下限'; }
@@ -2037,7 +2263,7 @@ const App = () => {
             if (zeroedPath && everShortfall) totals[stratId].bothPaths++;
             if ((failOnZero && zeroedPath) || (failOnShortfall && everShortfall)) totals[stratId].failPaths++;
             totals[stratId].finalNW.push(nw);
-            totals[stratId].finalNWReal.push(inflFactors[years - 1] > 0 ? nw / inflFactors[years - 1] : nw); // 逐路徑：用該路徑實際累積通膨折現（歷史/bootstrap 各路徑不同）
+            totals[stratId].finalNWReal.push(inflFactors[_years - 1] > 0 ? nw / inflFactors[_years - 1] : nw); // 逐路徑：用該路徑實際累積通膨折現（歷史/bootstrap 各路徑不同）
             totals[stratId].totalWithdrawn.push(totW);
             totals[stratId].allRealWithdrawn.push(realTotal); // 全宇宙：含破產路徑（天生被存活率加權）
             pathsNW[stratId].push(pathNW);
@@ -2049,15 +2275,15 @@ const App = () => {
               totals[stratId].survivorWithdrawn.push(totW); // 名目（保留備用）
               totals[stratId].survivorRealWithdrawn.push(realTotal); // 實質
               totals[stratId].survivorFinalNW.push(nw); // 期末名目淨值（遺產）
-              totals[stratId].survivorFinalNWReal.push(inflFactors[years - 1] > 0 ? nw / inflFactors[years - 1] : nw); // 逐路徑實質遺產
+              totals[stratId].survivorFinalNWReal.push(inflFactors[_years - 1] > 0 ? nw / inflFactors[_years - 1] : nw); // 逐路徑實質遺產
               totals[stratId].survivorDowngraded += pathDowngraded;
-              totals[stratId].survivorYears += years;
+              totals[stratId].survivorYears += _years;
 
               // 降級「深度」：只在降級年份（實質提領 < 維持首年購買力）計算平均短少 %；該人生若從未降級則不計入
               let cutSum = 0,
                 cutCount = 0;
               for (let yy = 0; yy < pathRealW.length; yy++) {
-                const tgt = initialWithdrawal * (useSmile ? smileFactor(retireAge + yy, retireAge, smileDepth) : 1);
+                const tgt = initialWithdrawal * (useSmile ? smileFactor(_retireAge + yy, _retireAge, smileDepth) : 1);
                 const d = (tgt - pathRealW[yy]) / tgt;
                 if (d > 0) {
                   cutSum += d;
@@ -2068,9 +2294,9 @@ const App = () => {
 
               // CV 衡量「相對計畫的穩定度」：開微笑時，刻意的年齡遞減本是計畫的一部分，不該算成不穩定
               // → 先除掉微笑趨勢（de-trend），只留市場造成的偏離；微笑關閉時 stab=pathRealW，與原值完全相同
-              const stab = pathRealW.map((rw, yy) => rw / (useSmile ? smileFactor(retireAge + yy, retireAge, smileDepth) : 1));
-              const meanS = stab.reduce((a, b) => a + b, 0) / years;
-              const stdS = Math.sqrt(stab.reduce((a, b) => a + Math.pow(b - meanS, 2), 0) / years);
+              const stab = pathRealW.map((rw, yy) => rw / (useSmile ? smileFactor(_retireAge + yy, _retireAge, smileDepth) : 1));
+              const meanS = stab.reduce((a, b) => a + b, 0) / _years;
+              const stdS = Math.sqrt(stab.reduce((a, b) => a + Math.pow(b - meanS, 2), 0) / _years);
               totals[stratId].wCVData.push(meanS > 0 ? stdS / meanS * 100 : 0);
             }
           };
@@ -2086,10 +2312,10 @@ const App = () => {
           });
           simulateStrategy('vanguard', (t, nw, histW, mr, inf, exp) => {
             if (t === 0) return {
-              w: nw * (initialWithdrawalRate / 100),
+              w: nw * (_wr / 100),
               note: '初始提領'
             };
-            const expectedW = nw * (initialWithdrawalRate / 100);
+            const expectedW = nw * (_wr / 100);
             const prevActualW = histW[t - 1];
             const maxW = prevActualW * (1 + vanCeiling / 100);
             const minW = prevActualW * (1 - vanFloor / 100);
@@ -2103,7 +2329,7 @@ const App = () => {
           });
           simulateStrategy('guyton', (t, nw, histW, mr, inf, exp) => {
             if (t === 0) return {
-              w: nw * (initialWithdrawalRate / 100),
+              w: nw * (_wr / 100),
               note: '初始提領'
             };
             const prevReturn = mr[t - 1];
@@ -2115,7 +2341,7 @@ const App = () => {
             const infStep = t === 1 ? inf[0] : inf[t - 1] / inf[t - 2]; // 當年實際通膨（與基準法則同口徑；高斯下為固定率）
             const inflatedW = prevW * infStep;
             const inflatedWR = inflatedW / nw * 100;
-            if (prevReturn < 0 && inflatedWR > initialWithdrawalRate) {
+            if (prevReturn < 0 && inflatedWR > _wr) {
               nextW = prevW;
               note = '❄️凍結通膨（WR）';
             } else {
@@ -2125,12 +2351,12 @@ const App = () => {
 
             // 護欄以「當前提領率 vs 初始提領率」判定，與前一年報酬正負脫鉤（GK 2006 Table 5）
             const wr = nextW / nw * 100;
-            const yearsRemaining = years - t; // 含當年在內的剩餘年數
-            if (wr > initialWithdrawalRate * (1 + gkCapPreserveThresh / 100) && yearsRemaining > 15) {
+            const yearsRemaining = _years - t; // 含當年在內的剩餘年數
+            if (wr > _wr * (1 + gkCapPreserveThresh / 100) && yearsRemaining > 15) {
               // 保本法則 CPR：提領率衝破上護欄（初始×1.2）則砍10%；最後15年停用
               nextW *= 1 - gkCapPreserveCut / 100;
               note += ' | 🔴保本刪減（CPR）';
-            } else if (wr < initialWithdrawalRate * (1 - gkProsperityThresh / 100)) {
+            } else if (wr < _wr * (1 - gkProsperityThresh / 100)) {
               // 繁榮法則 PR：提領率跌破下護欄（初始×0.8）則加薪10%(不受最後15年限制)
               nextW *= 1 + gkProsperityHike / 100;
               note += ' | 🟢繁榮加薪（PR）';
@@ -2142,12 +2368,12 @@ const App = () => {
           });
           simulateStrategy('endowment', (t, nw, histW, mr, inf, exp) => {
             if (t === 0) return {
-              w: nw * (initialWithdrawalRate / 100),
+              w: nw * (_wr / 100),
               note: '初始提領'
             };
             const infStep = t === 1 ? inf[0] : inf[t - 1] / inf[t - 2]; // 當年實際通膨（高斯下為固定率）
             const anchor = histW[t - 1] * infStep; // 去年支出×當年實際通膨
-            const target = nw * (initialWithdrawalRate / 100); // 當下資產×目標率
+            const target = nw * (_wr / 100); // 當下資產×目標率
             const wgt = yaleWeight / 100;
             return {
               w: wgt * anchor + (1 - wgt) * target,
@@ -2169,8 +2395,8 @@ const App = () => {
         survivals.guyton[0] = M;
         survivals.endowment[0] = M;
 
-        // 存活率：第 0~years 年（含起點 100%）
-        for (let t = 0; t <= years; t++) {
+        // 存活率：第 0~_years 年（含起點 100%）
+        for (let t = 0; t <= _years; t++) {
           chartDataSurv.push({
             year: t,
             baseline: survivals.baseline[t] / M * 100,
@@ -2180,8 +2406,8 @@ const App = () => {
           });
         }
 
-        // 淨值 / 提領：第 1~years 年（兩者同範圍，值皆完整，x 軸切換不跳動）
-        for (let t = 1; t <= years; t++) {
+        // 淨值 / 提領：第 1~_years 年（兩者同範圍，值皆完整，x 軸切換不跳動）
+        for (let t = 1; t <= _years; t++) {
           const nwAtT = {
             year: t
           };
@@ -2200,7 +2426,7 @@ const App = () => {
           });
 
           // 微笑目標線（名目，與名目提領同單位）；實質檢視時於渲染端除以 deflator → 變回 initialWithdrawal×微笑（水平）
-          wAtT.smileLine = useSmile ? initialWithdrawal * inflF * smileFactor(retireAge + t0, retireAge, smileDepth) : null;
+          wAtT.smileLine = useSmile ? initialWithdrawal * inflF * smileFactor(_retireAge + t0, _retireAge, smileDepth) : null;
           chartDataNW.push(nwAtT);
           chartDataW.push(wAtT);
         }
@@ -2211,13 +2437,13 @@ const App = () => {
           const survCount = survRealWs.length;
           const allRealWs = totals[strat].allRealWithdrawn;
           const ruins = totals[strat].ruinYears;
-          // 期望存活年 = 存活率曲線下的面積 = Σ_t 各年存活比例（t=1..years）
+          // 期望存活年 = 存活率曲線下的面積 = Σ_t 各年存活比例（t=1.._years）
           const expectedSurvivalYears = survivals[strat].slice(1).reduce((a, b) => a + b, 0) / M;
           const sfnReal = totals[strat].survivorFinalNWReal.slice().sort((a, b) => a - b);
           const sf = totals[strat].survivorShortfall.slice().sort((a, b) => a - b);
           // 期末資產倍數：納入「全部宇宙」（破產路徑期末=0），避免存活者偏誤；每條路徑以自身實際累積通膨折現（歷史/bootstrap 各路徑不同）；取中位與 P10–P90
           const allFinalReal = totals[strat].finalNWReal.slice().sort((a, b) => a - b);
-          const fnMults = allFinalReal.map(rv => rv / initialCapital); // 已排序（除以正常數保序）
+          const fnMults = allFinalReal.map(rv => rv / _cap); // 已排序（除以正常數保序）
           const fnPct = p => fnMults.length > 0 ? fnMults[Math.min(fnMults.length - 1, Math.floor(p * fnMults.length))] : 0;
           stats[strat] = {
             // 全宇宙視角
@@ -2260,6 +2486,7 @@ const App = () => {
           auditBaseStart: histWindows ? histWindows[0].start : null
         };
       };
+      simFnRef.current = runSimulationWithReturns;
       const res = runSimulationWithReturns();
       setSimResults(res);
       if (useTwFloor && showCompare) {
@@ -2273,6 +2500,48 @@ const App = () => {
   }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode, usePlan, spendFloorPct, useSmile, retireAge, smileDepth, marketMode, riskEngine, histWeights, gender, useTwFloor, JSON.stringify(twSources), twLaborPenLump, JSON.stringify(bigExpenses), twTargetMode, monthlyTarget, twDiscountRate, failOnZero, failOnShortfall, shortfallThreshold, showCompare]);
 
   // 軌跡圖資料：依目前世代/檢視模式即時挑選並映射；用 useMemo 讓引用穩定（只有真的換世代/模式/重算才產生新陣列 → 才觸發 AuditChart 的補間，避免其他互動誤觸）
+  const computeTornado = () => {
+    const fn = simFnRef.current;
+    if (!fn) return;
+    setTornadoBusy(true);
+    setTimeout(() => {
+      try {
+        const D = tornadoDeltas; const en = tornadoEnabled;
+        const metricsOf = r => {
+          const o = {};
+          activeStrategies.forEach(s => {
+            const st = r.stats[s.id];
+            if (st) { o[s.id] = {}; TORNADO_METRIC_ORDER.forEach(k => { o[s.id][k] = TORNADO_METRICS[k].get(st); }); }
+          });
+          return o;
+        };
+        const base = metricsOf(fn());
+        const yU = tr('年', 'y'), aU = tr('歲', 'y/o');
+        const defs = [
+          { k: 'cagr', label: tr('股票報酬', 'Equity return'), delta: D.cagr, dunit: '%', ov: v => ({ cagr: cagr + v }) },
+          { k: 'vol', label: tr('報酬波動', 'Volatility'), delta: D.vol, dunit: '%', ov: v => ({ volatility: volatility + v }) },
+          { k: 'wr', label: tr('提領率', 'Withdrawal rate'), delta: D.wr, dunit: '%', ov: v => ({ initialWithdrawalRate: initialWithdrawalRate + v }) },
+          { k: 'years', label: tr('模擬年限', 'Years'), delta: D.years, dunit: yU, ov: v => ({ years: Math.max(1, Math.round(years + v)) }) },
+          { k: 'retireAge', label: tr('退休年齡', 'Retire age'), delta: D.retireAge, dunit: aU, ov: v => ({ retireAge: Math.round(retireAge + v) }) },
+          { k: 'inflation', label: tr('通膨', 'Inflation'), delta: D.inflation, dunit: '%', ov: v => ({ inflation: inflation + v }) },
+          { k: 'capPct', label: tr('初始資本', 'Capital'), delta: D.capPct, dunit: '%', ov: v => ({ initialCapital: initialCapital * (1 + v / 100) }) }
+        ];
+        const rows = defs.filter(d => en[d.k]).map(d => ({
+          label: d.label, delta: d.delta, dunit: d.dunit,
+          lo: metricsOf(fn(undefined, d.ov(-d.delta))),
+          hi: metricsOf(fn(undefined, d.ov(d.delta)))
+        }));
+        setTornadoData({ base: base, rows: rows });
+      } catch (e) { console.log('tornado err', e); }
+      setTornadoBusy(false);
+    }, 30);
+  };
+  useEffect(() => {
+    if (!tornadoData) return;
+    const id = setTimeout(() => { computeTornado(); }, 300);
+    return () => clearTimeout(id);
+  }, [tornadoDeltas, tornadoEnabled]);
+
   const auditChartTarget = useMemo(() => {
     if (!simResults || !simResults.auditAll) return [];
     const isH = simResults.marketMode === 'hist';
@@ -2547,7 +2816,7 @@ const App = () => {
       className: "font-extrabold text-slate-800 flex items-center gap-1.5 text-sm md:text-base"
     }, /*#__PURE__*/React.createElement(FileSearch, {
       size: 16,
-      className: "text-indigo-600"
+      className: "text-slate-700"
     }), " ", tr('深度稽核', 'Deep audit')), /*#__PURE__*/React.createElement("p", {
       className: "text-[10px] md:text-xs text-slate-500 mt-1"
     }, simResults && simResults.marketMode === 'hist' ? tr(`逐一檢視各歷史起點世代（共 ${simResults.auditCohortCount} 個），看同一段真實歷史下四策略的逐年反應。`, `Step through each historical starting cohort (${simResults.auditCohortCount} total) to see all four strategies react year by year in that real history.`) : tr('抽出單一平行宇宙，觀察在同樣市場漲跌下的策略反應。', 'Pull a single parallel universe and watch how the strategies respond under the same market ups and downs.'))), simResults && simResults.marketMode === 'hist' ? (() => {
@@ -2564,7 +2833,7 @@ const App = () => {
           setAuditCohort(c => (c - 1 + cnt) % cnt);
         },
         title: tr('上一個世代', 'Previous cohort'),
-        className: "px-2.5 py-1 rounded-md bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-700 font-bold leading-none"
+        className: "px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-100 text-slate-700 hover:text-slate-800 font-bold leading-none"
       }, "\u2039"), /*#__PURE__*/React.createElement("input", {
         type: "number",
         min: base,
@@ -2575,18 +2844,18 @@ const App = () => {
           auditDirRef.current = v >= auditCohortStart ? 1 : -1;
           setYr(v);
         },
-        className: "w-16 text-center font-mono font-bold text-sm text-indigo-700 bg-slate-50 border border-slate-200 rounded-md py-1 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+        className: "w-16 text-center font-mono font-bold text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md py-1 focus:outline-none focus:ring-2 focus:ring-slate-200"
       }), /*#__PURE__*/React.createElement("button", {
         onClick: () => {
           auditDirRef.current = 1;
           setAuditCohort(c => (c + 1) % cnt);
         },
         title: tr('下一個世代', 'Next cohort'),
-        className: "px-2.5 py-1 rounded-md bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-700 font-bold leading-none"
+        className: "px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-100 text-slate-700 hover:text-slate-800 font-bold leading-none"
       }, "\u203A"));
     })() : /*#__PURE__*/React.createElement("button", {
       onClick: () => setSimSeed(s => s + 1),
-      className: "w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-colors whitespace-nowrap shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
+      className: "w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-colors whitespace-nowrap shadow-sm text-white bg-slate-700 hover:bg-slate-800"
     }, /*#__PURE__*/React.createElement(RefreshCw, {
       size: 14,
       className: isSimulating ? "animate-spin" : ""
@@ -2600,16 +2869,16 @@ const App = () => {
       className: "bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner w-full md:w-auto self-start"
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => setAuditChartMode('netWorth'),
-      className: `flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`
+      className: `flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'netWorth' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`
     }, tr('比較淨值', 'Net worth')), /*#__PURE__*/React.createElement("button", {
       onClick: () => setAuditChartMode('withdrawal'),
-      className: `flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`
+      className: `flex-1 md:flex-none px-3 py-1.5 rounded-md transition-all ${auditChartMode === 'withdrawal' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`
     }, tr('比較提領', 'Withdrawals')))), /*#__PURE__*/React.createElement("div", {
       className: "h-[200px] md:h-[250px] w-full relative mt-4"
     }, isSimulating && /*#__PURE__*/React.createElement("div", {
       className: "absolute inset-0 bg-white/60 backdrop-blur-sm z-20 flex items-center justify-center"
     }, /*#__PURE__*/React.createElement(Activity, {
-      className: "animate-pulse text-indigo-400",
+      className: "animate-pulse text-slate-500",
       size: 24
     })), /*#__PURE__*/React.createElement("div", {
       ref: auditWrapRef,
@@ -2722,13 +2991,13 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", {
     className: "text-xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2 md:gap-3"
   }, /*#__PURE__*/React.createElement(Activity, {
-    className: "w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0"
+    className: "w-6 h-6 md:w-8 md:h-8 text-slate-700 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.47"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.58"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
-    className: "md:hidden text-indigo-400"
+    className: "md:hidden text-slate-500"
   }, tr('（建議橫向瀏覽）', ' (landscape recommended)')))), /*#__PURE__*/React.createElement("div", {
     className: "flex flex-wrap items-center justify-end gap-2 shrink-0"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2739,7 +3008,7 @@ const App = () => {
     className: `px-3 py-2 md:py-2.5 text-xs md:text-sm font-bold transition-colors ${lang === v ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`
   }, lbl))), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowDefinitions(!showDefinitions),
-    className: "flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm shrink-0"
+    className: "flex items-center justify-center gap-2 bg-slate-50 text-slate-800 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-slate-100 transition-colors shadow-sm shrink-0"
   }, /*#__PURE__*/React.createElement(BookOpen, {
     size: 16
   }), showDefinitions ? tr('隱藏計算原理', 'Hide formulas') : tr('展開策略計算原理', 'Show strategy formulas')), /*#__PURE__*/React.createElement("button", {
@@ -2783,7 +3052,7 @@ const App = () => {
     className: "text-xs font-extrabold text-slate-700 mb-3 flex items-center gap-1.5 border-b border-slate-100 pb-2"
   }, /*#__PURE__*/React.createElement(History, {
     size: 14,
-    className: "text-indigo-500"
+    className: "text-slate-600"
   }), " ", tr('市場情境怎麼來？三種產生方式', 'How market scenarios are generated — three engines')), /*#__PURE__*/React.createElement("div", {
     className: "space-y-3"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2799,9 +3068,9 @@ const App = () => {
   }, tr('② 歷史抽樣（你的假設 · 歷史抽樣）', '② Historical sampling (Your assumptions · sampling)')), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-600 leading-relaxed"
   }, tr('不再假設鐘形，而是直接從美國 1928–2025 的真實年報酬「成塊」重抽（stationary block bootstrap：平均一塊約 7 年、頭尾相接），保留真實的厚尾、負偏與壞年連跌。再用對數平移，把整條路徑的長期平均「對齊」到你設定的報酬與通膨——你決定平均水準（level）、歷史決定形狀（shape）；波動由歷史決定。股／債混合用你的「股票比例」（股＝S&P500、債＝10 年期公債）。適合想保留真實市場形狀、但套用自己（全球／較保守）報酬假設的人。', 'Instead of a bell, it resamples actual US 1928–2025 annual returns in blocks (stationary block bootstrap: ~7-year blocks, wrapped end-to-end), keeping real fat tails, negative skew and multi-year drawdowns. A log-shift then aligns each path\'s long-run average to your return and inflation — you set the level, history sets the shape; volatility is history-driven. The stock/bond mix follows your equity %  (stocks = S&P 500, bonds = 10-yr Treasury). Best when you want a realistic shape but your own (global / conservative) return assumption.'))), /*#__PURE__*/React.createElement("div", {
-    className: "bg-indigo-50/50 rounded-lg p-3 border border-indigo-100"
+    className: "bg-slate-50/50 rounded-lg p-3 border border-slate-100"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] font-extrabold text-indigo-800 mb-1"
+    className: "text-[11px] font-extrabold text-slate-800 mb-1"
   }, tr('③ 純歷史回測（多資產重疊窗）', '③ Historical backtest (multi-asset overlapping windows)')), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-600 leading-relaxed"
   }, tr('完全用美國真實歷史：把你選的多資產權重，套到「每一個可能的歷史起點」開始的連續時段，每年再平衡回目標權重，每個起點＝一條人生。重疊窗讓世代數有限（非一萬條）；含 EAFE 自 1970、含黃金自 1972 起算，世代數會變少。報酬、波動、通膨全部來自歷史，你只設權重與年限。適合看「歷史上真的這樣配會怎樣」與最壞的起點世代。', 'Pure US history: your multi-asset weights are applied to every possible historical start window, rebalanced to target each year; each start = one life. Overlapping windows mean a limited cohort count (not 10,000); including EAFE starts from 1970 and gold from 1972, shrinking the count. Returns, volatility and inflation all come from history; you only set weights and horizon. Best for seeing how an allocation actually fared, and the worst starting cohorts.')))), /*#__PURE__*/React.createElement("div", {
@@ -2875,9 +3144,9 @@ const App = () => {
     className: "text-[10px] text-slate-600 leading-relaxed"
   }, /*#__PURE__*/React.createElement("b", null, "\u7D42\u8EAB"), "\u7D66\u4ED8\uFF0C65 \u6B72\u8D77\uFF1B\u7531\u653F\u5E9C\u5B9A\u671F\u6AA2\u8A0E\u6708\u6295\u4FDD\u91D1\u984D\u3002\u5C0D\u52DE\u5DE5\u901A\u5E38\u662F\u88DC\u5145\u6027\u7684\u4E00\u5C0F\u5C64\u3002"))),
   /*#__PURE__*/React.createElement("div", {
-    className: "bg-indigo-50/50 rounded-lg p-3 border border-indigo-100 mb-3"
+    className: "bg-slate-50/50 rounded-lg p-3 border border-slate-100 mb-3"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] font-extrabold text-indigo-800 mb-1.5"
+    className: "text-[11px] font-extrabold text-slate-800 mb-1.5"
   }, "公教人員？同時擁有多種年金？"), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-2 gap-2 mb-2"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2898,13 +3167,13 @@ const App = () => {
     className: "text-[10px] text-slate-600 leading-relaxed"
   }, "因為勞退月退只到平均餘命，大約 85 歲就停發。那一刻流進投組的年金", /*#__PURE__*/React.createElement("b", null, "往下跳一階"), "，之後只剩勞保＋國保。這正好砸在你最擔心的「活太久」尾段上——所以後段投組成長", /*#__PURE__*/React.createElement("b", null, "中途放慢"), "（淨值圖看得到的轉折）。提供「活太久」長壽保險的，其實只有勞保與國保，勞退月退不是。")),
   /*#__PURE__*/React.createElement("div", {
-    className: "my-4 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3"
+    className: "my-4 rounded-xl border border-slate-200 bg-slate-50/40 p-3"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[12px] font-extrabold text-indigo-900 mb-1.5 flex items-center gap-1.5"
+    className: "text-[12px] font-extrabold text-slate-900 mb-1.5 flex items-center gap-1.5"
   }, "💰 ", "年金怎麼進模擬：當成「灌進投組的現金流」"), /*#__PURE__*/React.createElement("p", {
     className: "text-[11px] text-slate-700 leading-relaxed mb-2"
   }, "年金不抵消支出、也不當「地板」，而是", /*#__PURE__*/React.createElement("b", {
-    className: "text-indigo-800"
+    className: "text-slate-800"
   }, "一筆筆流進投組的現金"), "：一次領＝請領當年一次入帳，月領＝每年入帳一些。提領完全照你選的策略（投組的 X% 或固定 4%），不做任何年金帳務——一次領／月領只是同一筆錢的兩種時間分布，零折現、零雙重計算。"), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-2 gap-2 mb-2"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2934,7 +3203,7 @@ const App = () => {
     className: "text-[11px] font-extrabold text-slate-700 mb-2 flex items-center gap-1.5"
   }, /*#__PURE__*/React.createElement(ShieldCheck, {
     size: 13,
-    className: "text-indigo-600"
+    className: "text-slate-700"
   }), " 失敗 ＝ 你勾選的條件（碰觸即算）"),
   /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-2 gap-2 mb-3"
@@ -2972,15 +3241,15 @@ const App = () => {
     className: "text-emerald-600"
   }), " 進階：年金的估值、隱含配置與圖表怎麼看"),
   /*#__PURE__*/React.createElement("div", {
-    className: "bg-indigo-50/40 rounded-lg p-3 border border-indigo-100 mb-3"
+    className: "bg-slate-50/40 rounded-lg p-3 border border-slate-100 mb-3"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] font-extrabold text-indigo-800 mb-1"
+    className: "text-[11px] font-extrabold text-slate-800 mb-1"
   }, "讀「消費跌破」的兩個關鍵（實測觀察）"), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-600 leading-relaxed mb-1.5"
   }, /*#__PURE__*/React.createElement("b", null, "① 對固定提領免疫、對百分比策略極敏感。"), "傳統 4% 的消費非 100% 即歸零，所以門檻設 30% 或 70% 對它幾乎沒差。但 VPW／Yale／GK 的消費是", /*#__PURE__*/React.createElement("b", null, "連續退化"), "的——壞年砍、好年加，可落在任何高度。把門檻從 30% 拉到 70%，成功率就大幅變動（實測無年金、提領 4%：Vanguard 97%→60%）。那個敏感度本身就是資訊：它在掃描你「壞年消費分布」的形狀。Guyton-Klinger 因護欄設計成限制砍幅，對門檻最不敏感（同條件 99.7%→74%、跌得最少）。"), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-600 leading-relaxed"
   }, /*#__PURE__*/React.createElement("b", null, "② 有年金時，能不能跌破取決於「年金佔計畫比例 vs 你的門檻」。"), "年金是固定金額；提領率越低 → 計畫越小 → 年金佔比越大。若", /*#__PURE__*/React.createElement("b", null, "年金 ≥ 門檻%"), "（例如年金佔計畫 73%、門檻 50%），你幾乎不可能跌破——年金本身就把你頂在門檻之上；若", /*#__PURE__*/React.createElement("b", null, "年金 < 門檻%"), "（高提領率把計畫撐大、年金佔比掉到 37%），投組波動才拉得下去、跌破才出現（實測提領率 3%→6%：Vanguard 跌破 0.4%→10%）。所以一般情況下，", /*#__PURE__*/React.createElement("b", null, "低提領率在「消費跌破」上反而更安全、不會更危險"), "；若你看到相反，多半是蒙地卡羅雜訊（成功率都在 99% 上下、差距不到 1%）或目標支出模式（門檻被月目標釘死、與提領率脫鉤）。"), /*#__PURE__*/React.createElement("p", {
-    className: "text-[10px] text-slate-600 leading-relaxed mt-1.5 pt-1.5 border-t border-indigo-100"
+    className: "text-[10px] text-slate-600 leading-relaxed mt-1.5 pt-1.5 border-t border-slate-100"
   }, /*#__PURE__*/React.createElement("b", null, "③ 微笑曲線不會被算成「假性跌破」。"), "微笑是你的計畫（慢活期刻意少花），所以「消費跌破」是拿當年消費跟", /*#__PURE__*/React.createElement("b", null, "微笑後的目標"), "比、而非跟平的初始目標比——你照微笑少花不算失敗（與「生活品質降級」指標一致）。否則會出現假象：開微笑時動態策略成功率反而下降（因為微笑把已隨市場縮小的提領又乘上一個 <1 的係數、更容易跌破平門檻）。修正後微笑係數在門檻兩邊相消，微笑回到「對所有策略都只會幫忙」——少領 → 投組更耐久 → 傳統少歸零、動態少跌破。")),
   /*#__PURE__*/React.createElement("div", {
     className: "bg-amber-50/50 rounded-lg p-3 border border-amber-100 mb-3"
@@ -2990,9 +3259,9 @@ const App = () => {
     className: "text-[10px] text-slate-600 leading-relaxed"
   }, "\u4ECA\u5929\u7684 100 \u842C\u6BD4\u4E00\u5E74\u5F8C\u7684 100 \u842C\u503C\u9322\uFF08\u4ECA\u5929\u80FD\u62FF\u53BB\u6295\u8CC7\uFF09\u3002\u628A\u300C\u672A\u4F86\u7684\u9322\u300D\u63DB\u7B97\u56DE\u300C\u4ECA\u5929\u7684\u50F9\u503C\u300D\u7528\u7684\u5229\u7387\uFF0C\u5C31\u662F", /*#__PURE__*/React.createElement("b", null, "\u6298\u73FE\u7387"), "\uFF1A\u73FE\u503C \uFF1D \u672A\u4F86\u91D1\u984D \xF7 (1+\u6298\u73FE\u7387)^\u5E74\u6578\u3002\u4E00\u4E32\u653F\u5E9C\uFF0F\u57FA\u91D1\u4FDD\u8B49\u7684\u73FE\u91D1\u6D41\uFF0C", /*#__PURE__*/React.createElement("b", null, "\u503C\u591A\u5C11\u53EA\u53D6\u6C7A\u65BC\u300C\u7528\u591A\u5B89\u5168\u7684\u5229\u7387\u6298\u73FE\u300D\uFF0C\u8DDF\u4F60\u6295\u7D44\u64FA\u591A\u5C11\u80A1\u7968\u5B8C\u5168\u7121\u95DC"), "\u2014\u2014\u6240\u4EE5\u5E74\u91D1\u73FE\u503C", /*#__PURE__*/React.createElement("b", null, "\u4E0D\u6703"), "\u7528\u4F60\u6295\u7D44\u7684 8% \u53BB\u6298\uFF08\u90A3\u6703\u628A\u5B83\u58D3\u5F88\u4F4E\uFF09\uFF0C\u800C\u662F\u7528 ~2% \u7684\u50B5\u5238\u7D1A\u5229\u7387\u3002\u6298\u73FE\u7387\u6ED1\u687F\uFF1D\u4F60\u300C\u591A\u770B\u91CD\u9019\u4E32\u5E74\u91D1\u300D\u7684\u65CB\u9215\uFF1A\u8ABF\u4F4E\u2192\u5E74\u91D1\u4F30\u503C\u9AD8\u3001\u6240\u9700\u8CC7\u672C\u66F4\u5C11\uFF1B\u8ABF\u9AD8\u2192\u8F03\u4FDD\u5B88\u3002\u5BE6\u8B49\uFF1A", /*#__PURE__*/React.createElement("b", null, "\u628A\u80A1\u50B5\u6BD4\u5F9E 8:2 \u6539\u6210 5:5\uFF0C\u5E74\u91D1\u73FE\u503C\u4E00\u6BDB\u90FD\u4E0D\u6703\u52D5\u3002"))),
   /*#__PURE__*/React.createElement("div", {
-    className: "bg-indigo-50/50 rounded-lg p-3 border border-indigo-100 mb-3"
+    className: "bg-slate-50/50 rounded-lg p-3 border border-slate-100 mb-3"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] font-extrabold text-indigo-800 mb-1"
+    className: "text-[11px] font-extrabold text-slate-800 mb-1"
   }, "\u4F60\u7684\u300C\u771F\u5BE6\u80A1\u50B5\u6BD4\u300D\u5176\u5BE6\u6BD4\u5E33\u9762\u4FDD\u5B88 \u2192 \u6D41\u52D5\u6295\u7D44\u53EF\u4EE5\u66F4\u9032\u53D6"), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-600 leading-relaxed"
   }, "\u5E74\u91D1\u672C\u8CEA\u662F\u4E00\u5927\u584A\u300C", /*#__PURE__*/React.createElement("b", null, "\u50B5\u5238"), "\u300D\u3002\u628A\u5B83\u7B97\u9032\u7E3D\u8CA1\u5BCC\uFF0C\u4F60\u7684\u771F\u5BE6\u914D\u7F6E\u6BD4\u5E33\u9762\u4FDD\u5B88\u5F88\u591A\uFF1A\u4F8B\u5982\u6295\u7D44 636 \u842C\u8D70 8:2\uFF08\u7D04 509 \u842C\u80A1\u3001127 \u842C\u50B5\uFF09\uFF0B \u5E74\u91D1\u73FE\u503C ~863 \u842C\uFF08\u7B49\u65BC\u50B5\uFF09\uFF0C", /*#__PURE__*/React.createElement("b", null, "\u7E3D\u9AD4\u771F\u5BE6\u80A1\u50B5\u6BD4 \u2248 34:66"), "\u2014\u2014\u4F60\u4EE5\u70BA 8:2 \u5F88\u7A4D\u6975\uFF0C\u6574\u9AD4\u5176\u5BE6\u504F\u50B5\u3002\u53EF\u884C\u52D5\u7684\u7D50\u8AD6\uFF1A", /*#__PURE__*/React.createElement("b", null, "\u56E0\u70BA\u5E74\u91D1\u5C31\u662F\u4F60\u7684\u50B5\u5238\u90E8\u4F4D\uFF0C\u4F60\u7684\u300C\u6D41\u52D5\u6295\u7D44\u300D\u5176\u5BE6\u53EF\u4EE5\u64FA\u5F97\u6BD4\u539F\u672C\u66F4\u7A4D\u6975"), "\uFF08\u628A\u80A1\u7968\u6BD4\u4F8B\u62C9\u9AD8\uFF09\uFF0C\u7E3D\u9AD4\u914D\u7F6E\u624D\u56DE\u5230\u4F60\u771F\u6B63\u60F3\u8981\u7684\u98A8\u96AA\u6C34\u6E96\uFF1B\u800C\u5DE5\u5177\u6703\u544A\u8A34\u4F60\u9019\u500B\u66F4\u9032\u53D6\u7684\u6295\u7D44\u6490\u4E0D\u6490\u5F97\u4F4F\u2014\u2014\u901A\u5E38\u6490\u5F97\u4F4F\uFF0C\u56E0\u70BA\u9000\u4F11\u5E74\u91D1\u5728\u4E0B\u9762\u63A5\u8457\u3002年金本身就是流進投組的現金——一旦入帳沒花掉，便隨投組以市場報酬成長（過 85 勞退停發後流入變少）；「年金當債券」只是你思考整體配置的心智模型，引擎本身不必折現，也沒有重複計算的問題。")),
@@ -3023,13 +3292,13 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("div", {
     className: "lg:col-span-4 flex flex-col gap-4 md:gap-5 work-pane param-scroll pr-1 px-2 md:px-0 lg:pb-4"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "bg-white p-4 md:p-5 rounded-xl shadow-sm border-2 border-indigo-100"
+    className: "bg-white p-4 md:p-5 rounded-xl shadow-sm border-2 border-slate-100"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between gap-2 mb-3"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "font-extrabold text-slate-800 flex items-center gap-1 text-sm md:text-base"
   }, /*#__PURE__*/React.createElement(Play, {
-    className: "w-4 h-4 text-indigo-600"
+    className: "w-4 h-4 text-slate-700"
   }), " ", tr('模擬控制', 'Simulation controls'), /*#__PURE__*/React.createElement(InfoPopover, {
     w: "w-80",
     size: 13
@@ -3038,7 +3307,7 @@ const App = () => {
   }, tr('參數即時更新', 'Live recompute'))), /*#__PURE__*/React.createElement("button", {
     onClick: () => setSimSeed(s => s + 1),
     disabled: simResults && simResults.marketMode === 'hist',
-    className: `w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm text-white ${simResults && simResults.marketMode === 'hist' ? 'bg-slate-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`
+    className: `w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm text-white ${simResults && simResults.marketMode === 'hist' ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-700 hover:bg-slate-800'}`
   }, /*#__PURE__*/React.createElement(RefreshCw, {
     size: 16,
     className: isSimulating ? 'animate-spin' : ''
@@ -3047,7 +3316,7 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("h3", {
     className: "font-extrabold text-slate-800 mb-3 flex items-center gap-1 border-b border-slate-100 pb-2 text-sm md:text-base"
   }, /*#__PURE__*/React.createElement(Scale, {
-    className: "w-4 h-4 text-indigo-500"
+    className: "w-4 h-4 text-slate-600"
   }), " ", tr('比較模型', 'Compare strategies'), /*#__PURE__*/React.createElement(InfoPopover, {
     w: "w-60",
     size: 13
@@ -3074,7 +3343,7 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("h3", {
     className: "font-extrabold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm md:text-base"
   }, /*#__PURE__*/React.createElement(PieChart, {
-    className: "w-4 h-4 text-indigo-500"
+    className: "w-4 h-4 text-slate-600"
   }), " ", tr('資產配置與市場環境', 'Allocation & market')), /*#__PURE__*/React.createElement("div", {
     className: "mb-4 -mt-1"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3090,9 +3359,9 @@ const App = () => {
   }].map(m => /*#__PURE__*/React.createElement("button", {
     key: m.id,
     onClick: () => setMarketMode(m.id),
-    className: `flex flex-col items-start px-2.5 py-2 rounded-lg border text-left transition-all ${marketMode === m.id ? 'border-indigo-400 bg-indigo-50 shadow-sm' : 'border-slate-200 bg-white opacity-60 hover:opacity-100'}`
+    className: `flex flex-col items-start px-2.5 py-2 rounded-lg border text-left transition-all ${marketMode === m.id ? 'border-slate-500 bg-slate-50 shadow-sm' : 'border-slate-200 bg-white opacity-60 hover:opacity-100'}`
   }, /*#__PURE__*/React.createElement("span", {
-    className: `text-xs font-extrabold flex items-center gap-1 ${marketMode === m.id ? 'text-indigo-700' : 'text-slate-600'}`
+    className: `text-xs font-extrabold flex items-center gap-1 ${marketMode === m.id ? 'text-slate-800' : 'text-slate-600'}`
   }, m.id === 'hist' && /*#__PURE__*/React.createElement(History, {
     size: 12
   }), m.label), /*#__PURE__*/React.createElement("span", {
@@ -3121,7 +3390,7 @@ const App = () => {
     className: "text-[9px] text-slate-500 leading-relaxed pl-1 flex items-start gap-1"
   }, /*#__PURE__*/React.createElement(Info, {
     size: 12,
-    className: "text-indigo-400 mt-0.5 shrink-0"
+    className: "text-slate-500 mt-0.5 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('用美國各資產 1928–2025 的真實年報酬，跑所有「重疊的實際歷史時段」（每年再平衡回目標權重）。報酬、波動、通膨全部來自歷史，你只設定資產權重與年限。', 'Uses actual US per-asset annual returns 1928–2025, running every overlapping real historical window (rebalanced to target weights each year). Returns, volatility and inflation all come from history; you only set asset weights and horizon.')))), marketMode === 'sim' && /*#__PURE__*/React.createElement("div", {
     className: "mb-4"
   }, /*#__PURE__*/React.createElement(InputSlider, {
@@ -3144,7 +3413,7 @@ const App = () => {
     className: "text-xs font-bold text-slate-700 flex items-center gap-1"
   }, /*#__PURE__*/React.createElement(Layers, {
     size: 13,
-    className: "text-indigo-500"
+    className: "text-slate-600"
   }), tr('資產權重（每年再平衡）', 'Asset weights (rebalanced yearly)')), /*#__PURE__*/React.createElement("span", {
     className: `text-[10px] font-bold px-1.5 py-0.5 rounded ${histWeightSumPct === 100 ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`
   }, tr('合計 ', 'Σ '), histWeightSumPct, "%")), /*#__PURE__*/React.createElement("div", {
@@ -3181,7 +3450,7 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-[9px] text-slate-400"
   }, tr('資料自 ', 'Data from '), histStartYear(histWeights), tr(' 年起算', '')), /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] font-bold text-indigo-600"
+    className: "text-[10px] font-bold text-slate-700"
   }, tr('可用 ', ''), histWindowCount(histWeights, years), tr(' 個歷史世代', ' cohorts'))), /*#__PURE__*/React.createElement("p", {
     className: "text-[9px] text-slate-400 mt-1.5 leading-relaxed"
   }, tr('權重自動正規化為比例（不必剛好 100%）。每個歷史起點＝一條人生；重疊窗使世代數有限（非一萬條），存活率以實際世代比例計。', 'Weights auto-normalize (need not sum to 100%). Each historical start = one life; overlapping windows give a limited cohort count (not 10,000); survival is the share of actual cohorts.')), /*#__PURE__*/React.createElement("p", {
@@ -3310,7 +3579,7 @@ const App = () => {
   }, [['all', '全體', 'All'], ['male', '男', 'M'], ['female', '女', 'F']].map(([v, lbl, en], i) => /*#__PURE__*/React.createElement("button", {
     key: v,
     onClick: () => setGender(v),
-    className: `flex-1 px-1 py-1 text-xs font-bold transition-colors ${i > 0 ? 'border-l border-slate-200' : ''} ${gender === v ? 'bg-indigo-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`
+    className: `flex-1 px-1 py-1 text-xs font-bold transition-colors ${i > 0 ? 'border-l border-slate-200' : ''} ${gender === v ? 'bg-slate-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`
   }, tr(lbl, en)))))), /*#__PURE__*/React.createElement(InputSlider, {
     label: tr('退休年齡', 'Retirement age'),
     value: retireAge,
@@ -3343,12 +3612,12 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[11px] md:text-sm font-bold text-violet-700 flex items-center gap-1"
+    className: "text-[11px] md:text-sm font-bold text-slate-800 flex items-center gap-1"
   }, /*#__PURE__*/React.createElement(Activity, {
     size: 14
   }), " ", tr('退休支出微笑曲線', 'Retirement spending smile'), /*#__PURE__*/React.createElement(InfoPopover, {
     w: "w-64",
-    iconClass: "text-violet-400",
+    iconClass: "text-slate-400",
     size: 12
   }, "\u5BE6\u8B49\u7814\u7A76\u767C\u73FE\u9000\u4F11\u5BE6\u8CEA\u652F\u51FA\u4E26\u975E\u8FFD\u5E73\u901A\u81A8\uFF0C\u800C\u662F\u96A8\u5E74\u9F61\u905E\u6E1B\u2014\u2014\u7D04 60\u219285 \u6B72\u4E0B\u6ED1 26\u201330%\uFF08\u65C5\u904A\uFF0F\u5916\u98DF\uFF0F\u4EA4\u901A\u6E1B\u5C11\uFF0C\u91AB\u7642\u96D6\u5347\u4F46\u4E0D\u8DB3\u62B5\u92B7\uFF09\uFF0C\u672B\u671F\u7565\u56DE\u5347\u6210\u300C\u5FAE\u7B11\u300D\uFF0C\u53CD\u6620\u300C\u6D3B\u529B\u671F\u591A\u82B1\u3001\u7DE9\u6B65\u671F\u5C11\u82B1\u300D\u3002", /*#__PURE__*/React.createElement("span", {
     className: "block mt-1.5 pt-1.5 border-t border-slate-600"
@@ -3356,15 +3625,15 @@ const App = () => {
     href: "https://www.financialplanningassociation.org/article/journal/MAY14-exploring-retirement-consumption-puzzle",
     target: "_blank",
     rel: "noopener noreferrer",
-    className: "text-violet-300 underline"
+    className: "text-slate-400 underline"
   }, "Blanchett (2014)\u300AExploring the Retirement Consumption Puzzle\u300B"), "\uFF0CJ. Financial Planning 27(5):34\u201342\uFF08$100k\u219284 \u6B72\u8C37\u5E95 $74,146 \u2248 \u221226%\uFF09\uFF1B", /*#__PURE__*/React.createElement("a", {
     href: "https://am.jpmorgan.com/us/en/asset-management/adv/insights/retirement-insights/defined-contribution/retirement-by-the-numbers/",
     target: "_blank",
     rel: "noopener noreferrer",
-    className: "text-violet-300 underline"
+    className: "text-slate-400 underline"
   }, "J.P. Morgan\u300ARetirement by the Numbers\u300B(2025)"), "\uFF0860\u219285 \u6B72\u7D04 \u221230%\uFF1B5M+ Chase + EBRI 12M\uFF09\u3002"))), /*#__PURE__*/React.createElement("button", {
     onClick: () => setUseSmile(!useSmile),
-    className: `relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${useSmile ? 'bg-violet-500' : 'bg-slate-300'}`
+    className: `relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${useSmile ? 'bg-slate-600' : 'bg-slate-300'}`
   }, /*#__PURE__*/React.createElement("span", {
     className: `pointer-events-none inline-block h-4 md:h-5 w-4 md:w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${useSmile ? 'translate-x-4 md:translate-x-5' : 'translate-x-0'}`
   }))), /*#__PURE__*/React.createElement("p", {
@@ -3376,24 +3645,24 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-[9px] md:text-[10px] font-bold text-slate-600"
   }, tr('下滑深度錨點：', 'Decline anchor:')), /*#__PURE__*/React.createElement("div", {
-    className: "flex rounded-md overflow-hidden border border-violet-200"
+    className: "flex rounded-md overflow-hidden border border-slate-200"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setSmileDepth(0.26),
-    className: `px-2 py-0.5 text-[9px] md:text-[10px] font-bold transition-colors ${smileDepth === 0.26 ? 'bg-violet-500 text-white' : 'bg-white text-violet-600'}`
+    className: `px-2 py-0.5 text-[9px] md:text-[10px] font-bold transition-colors ${smileDepth === 0.26 ? 'bg-slate-600 text-white' : 'bg-white text-slate-700'}`
   }, "\uFF0D26% Blanchett"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setSmileDepth(0.30),
-    className: `px-2 py-0.5 text-[9px] md:text-[10px] font-bold transition-colors border-l border-violet-200 ${smileDepth === 0.30 ? 'bg-violet-500 text-white' : 'bg-white text-violet-600'}`
+    className: `px-2 py-0.5 text-[9px] md:text-[10px] font-bold transition-colors border-l border-slate-200 ${smileDepth === 0.30 ? 'bg-slate-600 text-white' : 'bg-white text-slate-700'}`
   }, "\uFF0D30% JPM"))))), /*#__PURE__*/React.createElement("div", {
     className: "pt-4 mt-4 border-t border-slate-100"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[11px] md:text-sm font-bold text-indigo-700 flex items-center gap-1"
+    className: "text-[11px] md:text-sm font-bold text-slate-800 flex items-center gap-1"
   }, /*#__PURE__*/React.createElement(ShieldCheck, {
     size: 14
   }), " ", tr('生活費下限（底線）', 'Spending floor')), /*#__PURE__*/React.createElement("button", {
     onClick: () => setUsePlan(!usePlan),
-    className: `relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${usePlan ? 'bg-indigo-500' : 'bg-slate-300'}`
+    className: `relative inline-flex h-5 md:h-6 w-9 md:w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${usePlan ? 'bg-slate-600' : 'bg-slate-300'}`
   }, /*#__PURE__*/React.createElement("span", {
     className: `pointer-events-none inline-block h-4 md:h-5 w-4 md:w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${usePlan ? 'translate-x-4 md:translate-x-5' : 'translate-x-0'}`
   }))), /*#__PURE__*/React.createElement("p", {
@@ -3535,18 +3804,18 @@ const App = () => {
   }, tr('每年年金現金流先注入投組、提領照所選模型運作；請領前（橋接期）年金＝0、投組扛全額。若含「有期限」年金（如勞退月退只到~85），該筆停發後、終身年金墊高的基準會往下掉一階。', 'The portfolio funds only the gap. Before claiming the floor is 0 (full burden); after claiming, pensions lift the base and the gap jumps up around 85 when labor-pension monthly payments end.')), useTwFloor && /*#__PURE__*/React.createElement("div", {
     className: "space-y-3 mt-3"
   }, twSources.map(s => /*#__PURE__*/React.createElement(PensionSourceCard, { key: s.key, s: s, onChange: updateSource, tr: tr })), /*#__PURE__*/React.createElement("div", {
-    className: "bg-indigo-50/60 rounded-lg p-3 border border-indigo-200 mt-1"
+    className: "bg-slate-50/60 rounded-lg p-3 border border-slate-200 mt-1"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] font-extrabold text-indigo-800 mb-0.5"
+    className: "text-[11px] font-extrabold text-slate-800 mb-0.5"
   }, tr('退休金需求試算', 'Retirement needs')), /*#__PURE__*/React.createElement("div", {
     className: "text-[9px] text-slate-500 mb-1.5 leading-snug"
   }, tr('用退休年金把「應備退休金」調小。輸入每月想維持的全額生活水準，下方算出年金覆蓋率、投組要補的缺口與建議應備退休金，可一鍵套用到初始資產。', 'Uses the pension floor to right-size required capital; one-tap apply to initial capital.')), /*#__PURE__*/React.createElement("div", {
     className: "mb-2"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-[10px] font-bold text-slate-600 mb-1"
-  }, tr('年金處理模型：保底＋裁量', 'Floor model: floor + discretionary')), /*#__PURE__*/React.createElement("div", {
-    className: "text-[9px] text-slate-500 leading-snug bg-indigo-50 rounded-lg p-2 border border-indigo-100"
-  }, tr('保證年金當固定保底；投組只支應「裁量缺口」。動態策略只對「投組」評估永續，不把不能變現的年金現值當可花財富。壞年度砍裁量、退回靠保底；目標模式下好年度封頂於目標、不超花，非目標模式保留「好年多花」。詳見右上綠色鈕「台灣退休年金」完整說明。', 'Guaranteed pension is a fixed floor; the portfolio funds only the discretionary gap, with sustainability assessed against the portfolio alone — never the illiquid pension value.'))), /*#__PURE__*/React.createElement(InputSlider, {
+  }, tr('年金處理模型：年金現金流', 'Model: pension cashflow')), /*#__PURE__*/React.createElement("div", {
+    className: "text-[9px] text-slate-500 leading-snug bg-slate-50 rounded-lg p-2 border border-slate-100"
+  }, tr('年金每年現金流灌進投組；提領純照所選策略，沒花完的（含當年年金）留在投組以市場報酬複利。動態策略只對「投組」評估永續，不把不能變現的年金現值當可花財富。要保證每年消費下限，請另開「生活費下限」。詳見右上綠色鈕「台灣退休年金」完整說明。', 'Pension cash flows into the portfolio each year; withdrawals follow your chosen strategy and any unspent pension compounds. Use the explicit spending floor for a guaranteed minimum.'))), /*#__PURE__*/React.createElement(InputSlider, {
     label: tr('每月目標支出', 'Monthly target'),
     value: monthlyTarget,
     setter: setMonthlyTarget,
@@ -3621,22 +3890,22 @@ const App = () => {
     }, tr('覆蓋目標', 'Covers'), " ", /*#__PURE__*/React.createElement("b", {
       className: "text-emerald-700"
     }, cover.toFixed(0), "%"), tr('；該段月缺口', '; gap'), " ", /*#__PURE__*/React.createElement("b", {
-      className: "text-indigo-800"
+      className: "text-slate-800"
     }, fmt(gapM)), " ", tr('元/月', '/mo'), bridge > 0 ? tr('；橋接 ', '; bridge ') + bridge + tr(' 年年金＝0', ' y floor=0') : ''), (mFloor > mFloorLife + 1) && /*#__PURE__*/React.createElement("div", {
       className: "text-[9px] text-amber-700"
     }, tr('⚠ 有期限年金（如勞退）結束後，終身月年金僅剩', '⚠ After fixed-term pensions end, lifetime floor →'), " ", /*#__PURE__*/React.createElement("b", null, fmt(mFloorLife)), " ", tr('元/月、缺口擴大為', '/mo, gap →'), " ", /*#__PURE__*/React.createElement("b", null, fmt(gapLifeM)), " ", tr('元/月', '/mo')), /*#__PURE__*/React.createElement("div", {
-      className: "flex justify-between items-baseline pt-1.5 border-t border-indigo-200 mt-1"
+      className: "flex justify-between items-baseline pt-1.5 border-t border-slate-200 mt-1"
     }, /*#__PURE__*/React.createElement("span", {
-      className: "text-[11px] font-extrabold text-indigo-900"
+      className: "text-[11px] font-extrabold text-slate-900"
     }, tr('建議應備退休金 ≈', 'Suggested capital ≈')), /*#__PURE__*/React.createElement("span", {
-      className: "text-[15px] font-extrabold text-indigo-900"
+      className: "text-[15px] font-extrabold text-slate-900"
     }, fmt(need / 10000), " ", tr('萬', '×10k'))), /*#__PURE__*/React.createElement("button", {
       onClick: () => setShowNeedFormula(v => !v),
-      className: "text-[9px] text-indigo-600 underline decoration-dotted hover:text-indigo-800"
+      className: "text-[9px] text-slate-700 underline decoration-dotted hover:text-slate-800"
     }, showNeedFormula ? tr('▾ 收合算式', '▾ Hide') : tr('▸ 這個數字怎麼算的？', '▸ How is this computed?')), showNeedFormula && /*#__PURE__*/React.createElement("div", {
-      className: "text-[9px] font-mono text-slate-600 bg-white/70 rounded-md px-2 py-1.5 leading-relaxed border border-indigo-100 space-y-0.5"
+      className: "text-[9px] font-mono text-slate-600 bg-white/70 rounded-md px-2 py-1.5 leading-relaxed border border-slate-100 space-y-0.5"
     }, /*#__PURE__*/React.createElement("div", null, tr('① 總財富需求', '① Total wealth'), " = ", tr('年目標', 'target'), " ", fmt(monthlyTarget * 12 / 10000), " \xF7 ", initialWithdrawalRate, "% = ", /*#__PURE__*/React.createElement("b", {
-      className: "text-indigo-800"
+      className: "text-slate-800"
     }, fmt(totalWealthNeed / 10000), " ", tr('萬', '×10k'))), /*#__PURE__*/React.createElement("div", null, tr('② 全部年金現值（折現', '② All-pension PV (disc.'), " ", twDiscountRate, "%\uFF09= ", /*#__PURE__*/React.createElement("b", {
       className: "text-emerald-700"
     }, fmt(pvPension / 10000), " ", tr('萬', '×10k'))), /*#__PURE__*/React.createElement("div", {
@@ -3644,7 +3913,7 @@ const App = () => {
     }, tr('月領年金', 'monthly'), " ", fmt(pvMonthly / 10000), pvLump > 0 ? '・' + tr('一次領', 'lump') + ' ' + fmt(pvLump / 10000) : '', " ", tr('萬', '×10k')), /*#__PURE__*/React.createElement("div", {
       className: "pt-0.5 border-t border-slate-200"
     }, tr('應備資本 ①−②', 'Capital ①−②'), " = ", /*#__PURE__*/React.createElement("b", {
-      className: "text-indigo-900"
+      className: "text-slate-900"
     }, fmt(need / 10000), " ", tr('萬', '×10k'))), /*#__PURE__*/React.createElement("div", {
       className: "text-slate-400 leading-relaxed"
     }, tr('扣除「全部年金」的現值（不只勞保）：月領以實質折現（勞保/國保為半實質≈隨通膨調整、勞退成長領到~85）；一次領是固定名目額、以名目折現（已含通膨侵蝕）。橋接期年金＝0 已用遞延反映。', 'Deducts ALL pension PV (not just labor-insurance): monthly streams real-discounted (ins/nat semi-real, pen grows to ~85); the lump is a fixed nominal amount, nominal-discounted (inflation included). Bridge deferral applied.')), pvBigExp > 0 && /*#__PURE__*/React.createElement("div", {
@@ -3654,7 +3923,7 @@ const App = () => {
         setInitialCapital(Math.max(1, Math.round(need / 10000)));
         setTwTargetMode(true);
       },
-      className: "w-full mt-1.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold rounded-lg shadow-sm transition-colors"
+      className: "w-full mt-1.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-[11px] font-extrabold rounded-lg shadow-sm transition-colors"
     }, tr('套用到初始資產並以目標支出模擬', 'Apply to initial capital & simulate at target')), twTargetMode ? /*#__PURE__*/React.createElement("div", {
       className: "text-[9px] text-emerald-700 font-bold leading-relaxed pt-0.5"
     }, tr('✓ 目標支出模式已開啟：模擬以每月目標', '✓ Target mode ON: sim spends'), " ", fmt(monthlyTarget), " ", tr('元花用，投組只補缺口。初始資產仍可在上方手動微調。', '/mo; portfolio funds the gap. Capital still adjustable above.')) : /*#__PURE__*/React.createElement("div", {
@@ -3665,13 +3934,13 @@ const App = () => {
       const totalW = initialCapital + pensionBond;
       const effStock = totalW > 0 ? portStock / totalW * 100 : 0;
       return /*#__PURE__*/React.createElement("div", {
-        className: "bg-white/70 rounded-md px-2 py-1.5 mt-1.5 border border-indigo-100"
+        className: "bg-white/70 rounded-md px-2 py-1.5 mt-1.5 border border-slate-100"
       }, /*#__PURE__*/React.createElement("div", {
-        className: "text-[10px] font-extrabold text-indigo-800 mb-1"
+        className: "text-[10px] font-extrabold text-slate-800 mb-1"
       }, tr('有效總資產配置（年金當債券）', 'Effective allocation (pension as bonds)')), /*#__PURE__*/React.createElement("div", {
         className: "flex h-3 rounded overflow-hidden mb-1"
       }, /*#__PURE__*/React.createElement("div", {
-        className: "bg-indigo-500",
+        className: "bg-slate-600",
         style: {
           width: effStock + '%'
         }
@@ -3683,13 +3952,13 @@ const App = () => {
       })), /*#__PURE__*/React.createElement("div", {
         className: "text-[9px] text-slate-600 leading-snug"
       }, tr('真實 股', 'True stock'), " ", /*#__PURE__*/React.createElement("b", {
-        className: "text-indigo-700"
+        className: "text-slate-800"
       }, effStock.toFixed(0), "%"), " \uFF0F ", tr('債', 'bond'), " ", /*#__PURE__*/React.createElement("b", {
         className: "text-slate-600"
       }, (100 - effStock).toFixed(0), "%"), "\u3000", /*#__PURE__*/React.createElement("span", {
         className: "text-slate-400"
       }, tr('（投組帳面', '(portfolio'), " ", stockRatio, ":", 100 - stockRatio, tr('＋年金現值', '＋pension PV'), " ", fmt(pensionBond), " ", tr('萬視為債）', '×10k as bonds)'))), /*#__PURE__*/React.createElement("div", {
-        className: "text-[9px] text-indigo-600 leading-snug mt-0.5"
+        className: "text-[9px] text-slate-700 leading-snug mt-0.5"
       }, tr('年金是一大塊債券 → 你的「流動投組」其實可擺得比帳面更積極（拉高股票比），總體配置才回到你想要的風險水準。', 'Pension is a big bond → your liquid portfolio can run more aggressively than it looks; total allocation then matches your intended risk.')));
     })());
   })()), /*#__PURE__*/React.createElement("p", {
@@ -3700,12 +3969,12 @@ const App = () => {
     className: "flex bg-white rounded-xl shadow-sm border border-slate-200 p-1.5 gap-1 font-bold text-xs md:text-sm"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setActiveTab('monteCarlo'),
-    className: `flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'monteCarlo' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`
+    className: `flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'monteCarlo' ? 'bg-slate-50 text-slate-800 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`
   }, /*#__PURE__*/React.createElement(ChartIcon, {
     size: 16
   }), " ", tr('蒙地卡羅報表', 'Monte Carlo report')), /*#__PURE__*/React.createElement("button", {
     onClick: () => setActiveTab('auditTrail'),
-    className: `flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'auditTrail' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`
+    className: `flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-1.5 md:gap-2 transition-all ${activeTab === 'auditTrail' ? 'bg-slate-50 text-slate-800 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`
   }, /*#__PURE__*/React.createElement(FileSearch, {
     size: 16
   }), " ", tr('深度稽核', 'Deep audit'))), activeTab === 'monteCarlo' ? /*#__PURE__*/React.createElement("div", {
@@ -3725,29 +3994,29 @@ const App = () => {
     className: "bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setViewMode('netWorth'),
-    className: `flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'netWorth' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`
+    className: `flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'netWorth' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`
   }, tr('淨值', 'Net worth')), /*#__PURE__*/React.createElement("button", {
     onClick: () => setViewMode('withdrawal'),
-    className: `flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'withdrawal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`
+    className: `flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'withdrawal' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`
   }, tr('提領', 'Withdrawals')), /*#__PURE__*/React.createElement("button", {
     onClick: () => setViewMode('survival'),
-    className: `flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`
+    className: `flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`
   }, tr('存活率', 'Survival'))), viewMode === 'withdrawal' && /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-1.5 ml-0 sm:ml-auto self-end sm:self-auto"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-slate-100 p-1 rounded-lg inline-flex text-[10px] md:text-xs font-bold shadow-inner"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setWithdrawalReal(true),
-    className: `px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${withdrawalReal ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`
+    className: `px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${withdrawalReal ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`
   }, tr('實質', 'Real')), /*#__PURE__*/React.createElement("button", {
     onClick: () => setWithdrawalReal(false),
-    className: `px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${!withdrawalReal ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`
+    className: `px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${!withdrawalReal ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`
   }, tr('\u540D\u76EE', 'Nominal'))), /*#__PURE__*/React.createElement(InfoPopover, { w: "w-60", align: "right", placement: "down", size: 12 }, /*#__PURE__*/React.createElement("div", {
     className: "space-y-1 leading-relaxed"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", { className: "text-white" }, "實質"), "：去通膨（折回今日購買力，方便與首年比較；固定實質的傳統提領會攤平成水平線）。"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", { className: "text-white" }, "名目"), "：含通膨（帳面金額，逐年隨通膨墊高）。"))))), isSimulating ? /*#__PURE__*/React.createElement("div", {
     className: "h-[300px] md:h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg"
   }, /*#__PURE__*/React.createElement(Activity, {
-    className: "animate-pulse text-indigo-400",
+    className: "animate-pulse text-slate-500",
     size: 32
   })) : renderChart()), /*#__PURE__*/React.createElement("div", {
     className: "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
@@ -3916,14 +4185,14 @@ const App = () => {
     const cmp = compareResults;
     const win = (a, b) => a >= b;
     return /*#__PURE__*/React.createElement("div", {
-      className: "bg-white rounded-xl shadow-sm border border-indigo-200 overflow-hidden"
+      className: "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
     }, /*#__PURE__*/React.createElement("div", {
-      className: "bg-indigo-50 px-4 md:px-5 py-3 border-b border-indigo-200 flex justify-between items-center gap-2"
+      className: "bg-slate-50 px-4 md:px-5 py-3 border-b border-slate-200 flex justify-between items-center gap-2"
     }, /*#__PURE__*/React.createElement("h3", {
-      className: "font-extrabold text-indigo-900 text-sm md:text-base"
+      className: "font-extrabold text-slate-800 text-sm md:text-base"
     }, tr('月領 ⇄ 一次領 並排比較（勞退）', 'Monthly vs lump (labor-pension)')), /*#__PURE__*/React.createElement("button", {
       onClick: () => setShowCompare(v => !v),
-      className: `px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-colors ${showCompare ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-white text-indigo-700 border border-indigo-300 hover:bg-indigo-100'}`
+      className: `px-3 py-1.5 rounded-lg text-[11px] md:text-xs font-bold transition-colors bg-slate-700 text-white hover:bg-slate-800`
     }, showCompare ? tr('關閉', 'Hide') : tr('開始比較', 'Compare'))), showCompare && (!cmp ? /*#__PURE__*/React.createElement("div", {
       className: "p-4 text-[11px] text-slate-400"
     }, tr('計算中…（同參數各跑一次「月領」與「一次領」，其餘設定不變）', 'Computing…')) : /*#__PURE__*/React.createElement("div", {
@@ -3932,23 +4201,23 @@ const App = () => {
       className: "grid grid-cols-2 gap-2 text-[10px]"
     }, /*#__PURE__*/React.createElement("div", {
       className: "bg-emerald-50 rounded-lg p-2 border border-emerald-100"
-    }, /*#__PURE__*/React.createElement("div", { className: "font-extrabold text-emerald-800 mb-0.5" }, "\uD83D\uDFE2 ", tr('月領', 'Monthly')), /*#__PURE__*/React.createElement("div", { className: "text-slate-600 leading-snug" }, tr('失敗時月保底：到~85 ', 'Floor if fail · to ~85 '), /*#__PURE__*/React.createElement("b", null, floorMonTo85), tr(' 元、85後 ', ' ; after 85 '), /*#__PURE__*/React.createElement("b", null, floorMonAfter), tr(' 元 → 軟著陸', ' → soft'))), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("div", { className: "font-extrabold text-emerald-800 mb-0.5" }, "\uD83D\uDFE2 ", tr('月領', 'Monthly')), /*#__PURE__*/React.createElement("div", { className: "text-slate-600 leading-snug" }, tr('年金月入：到~85 ', 'Pension/mo · to ~85 '), /*#__PURE__*/React.createElement("b", null, floorMonTo85), tr(' 元、85後 ', ' ; after 85 '), /*#__PURE__*/React.createElement("b", null, floorMonAfter), tr(' 元 → 軟著陸', ' → soft'))), /*#__PURE__*/React.createElement("div", {
       className: "bg-amber-50 rounded-lg p-2 border border-amber-100"
-    }, /*#__PURE__*/React.createElement("div", { className: "font-extrabold text-amber-800 mb-0.5" }, "\uD83D\uDFE1 ", tr('一次領', 'Lump')), /*#__PURE__*/React.createElement("div", { className: "text-slate-600 leading-snug" }, tr('失敗時月保底：終身 ', 'Floor if fail · lifetime '), /*#__PURE__*/React.createElement("b", null, floorLump), tr(' 元（勞退已領走）→ 硬著陸', ' → hard')))), /*#__PURE__*/React.createElement("div", {
-      className: "grid grid-cols-12 gap-1 text-[9px] font-bold pb-1 border-b border-slate-100 items-end"
+    }, /*#__PURE__*/React.createElement("div", { className: "font-extrabold text-amber-800 mb-0.5" }, "\uD83D\uDFE1 ", tr('一次領', 'Lump')), /*#__PURE__*/React.createElement("div", { className: "text-slate-600 leading-snug" }, tr('年金月入：終身 ', 'Pension/mo · lifetime '), /*#__PURE__*/React.createElement("b", null, floorLump), tr(' 元（勞退已領走）→ 硬著陸', ' → hard')))), /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-cols-12 gap-1 text-[10px] font-bold pb-1.5 mb-0.5 border-b border-slate-200 items-end"
     }, /*#__PURE__*/React.createElement("div", { className: "col-span-4 text-slate-400" }, tr('策略（成功率·期末×）', 'Strategy (success · end×)')), /*#__PURE__*/React.createElement("div", { className: "col-span-4 text-center text-emerald-700" }, tr('月領', 'Monthly')), /*#__PURE__*/React.createElement("div", { className: "col-span-4 text-center text-amber-700" }, tr('一次領', 'Lump'))), ...activeStrategies.map(s => {
       const mS = 100 - cmp.monthly.stats[s.id].failRate, lS = 100 - cmp.lump.stats[s.id].failRate;
       const mE = cmp.monthly.stats[s.id].finalMultMedian, lE = cmp.lump.stats[s.id].finalMultMedian;
       return /*#__PURE__*/React.createElement("div", {
         key: s.id,
         className: "grid grid-cols-12 gap-1 items-center"
-      }, /*#__PURE__*/React.createElement("div", { className: "col-span-4 text-[10px] font-bold text-slate-700 truncate" }, s.name), /*#__PURE__*/React.createElement("div", { className: "col-span-4 bg-emerald-50/70 rounded px-1 py-0.5 text-[9px] text-center border border-emerald-100" }, /*#__PURE__*/React.createElement("span", { className: win(mS, lS) ? "font-extrabold text-emerald-700" : "text-slate-400" }, mS.toFixed(0) + '%'), /*#__PURE__*/React.createElement("span", { className: "text-slate-300" }, " · "), /*#__PURE__*/React.createElement("span", { className: win(mE, lE) ? "font-extrabold text-emerald-700" : "text-slate-400" }, mE.toFixed(2) + '×')), /*#__PURE__*/React.createElement("div", { className: "col-span-4 bg-amber-50/70 rounded px-1 py-0.5 text-[9px] text-center border border-amber-100" }, /*#__PURE__*/React.createElement("span", { className: win(lS, mS) ? "font-extrabold text-amber-700" : "text-slate-400" }, lS.toFixed(0) + '%'), /*#__PURE__*/React.createElement("span", { className: "text-slate-300" }, " · "), /*#__PURE__*/React.createElement("span", { className: win(lE, mE) ? "font-extrabold text-amber-700" : "text-slate-400" }, lE.toFixed(2) + '×')));
+      }, /*#__PURE__*/React.createElement("div", { className: "col-span-4 text-[11px] font-bold text-slate-700 truncate pr-1" }, s.name), /*#__PURE__*/React.createElement("div", { className: "col-span-4 bg-emerald-50 rounded-md px-1.5 py-1 text-[10px] text-center border border-emerald-200/70" }, /*#__PURE__*/React.createElement("span", { className: win(mS, lS) ? "font-extrabold text-emerald-700" : "text-slate-400" }, mS.toFixed(0) + '%'), /*#__PURE__*/React.createElement("span", { className: "text-slate-300" }, " · "), /*#__PURE__*/React.createElement("span", { className: win(mE, lE) ? "font-extrabold text-emerald-700" : "text-slate-400" }, mE.toFixed(2) + '×')), /*#__PURE__*/React.createElement("div", { className: "col-span-4 bg-amber-50 rounded-md px-1.5 py-1 text-[10px] text-center border border-amber-200/70" }, /*#__PURE__*/React.createElement("span", { className: win(lS, mS) ? "font-extrabold text-amber-700" : "text-slate-400" }, lS.toFixed(0) + '%'), /*#__PURE__*/React.createElement("span", { className: "text-slate-300" }, " · "), /*#__PURE__*/React.createElement("span", { className: win(lE, mE) ? "font-extrabold text-amber-700" : "text-slate-400" }, lE.toFixed(2) + '×')));
     }), /*#__PURE__*/React.createElement("div", {
       className: "text-[9px] text-slate-500 bg-slate-50 rounded-lg p-2 border border-slate-100 leading-snug"
     }, /*#__PURE__*/React.createElement("b", { className: "text-slate-600" }, tr('勞保能不能一次領？', 'Labor insurance lump?')), tr(' 2009 年金化後，新年資只能「月領」；一次請領僅限 2009 施行前已有年資者。能自由選月領／一次領的是「勞退（個人專戶）」，故本比較聚焦勞退。', ' Post-2009 seniority is annuity-only; the free monthly/lump choice applies to the labor pension — what this compares.')), /*#__PURE__*/React.createElement("p", {
       className: "text-[9px] text-slate-500 leading-relaxed"
     }, /*#__PURE__*/React.createElement("b", { className: "text-slate-600" }, tr('讀法：', 'How to read: ')), tr('月領缺口小、失敗較軟（保底較高）；一次領把那筆錢投入投組，期末資產與遺產潛力通常較高、成功率不一定輸（勞退年金化利率僅約 1.1%），但失敗較硬、自負長壽與投資風險。沒有單一正解，看你重視「保證收入＋軟著陸」還是「期望報酬＋控制權」。', 'Monthly: softer failure, guaranteed income. Lump: usually higher ending wealth/bequest with comparable success, but harder failure and you bear longevity/investment risk.')))));
-  })(), /*#__PURE__*/React.createElement("div", {
+  })(), /*#__PURE__*/React.createElement(TornadoCard, { data: tornadoData, busy: tornadoBusy, onCompute: computeTornado, deltas: tornadoDeltas, setDeltas: setTornadoDeltas, enabled: tornadoEnabled, setEnabled: setTornadoEnabled, panels: tornadoPanels, setPanels: setTornadoPanels, strategies: activeStrategies, sName: sName, tr: tr }), /*#__PURE__*/React.createElement("div", {
     className: "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-slate-50 px-4 md:px-5 py-3 md:py-4 border-b border-slate-200 flex justify-between items-center"
@@ -4117,14 +4386,18 @@ const App = () => {
     className: "px-2 py-2 border-r border-slate-200 text-emerald-700 bg-emerald-100/60 text-[10px] md:text-xs font-extrabold tracking-wider"
   }, tr('全宇宙', 'All universes')), /*#__PURE__*/React.createElement("th", {
     colSpan: 2,
-    className: "px-2 py-2 text-indigo-700 bg-indigo-100/50 text-[10px] md:text-xs font-extrabold tracking-wider"
+    className: "px-2 py-2 text-slate-800 bg-slate-100/50 text-[10px] md:text-xs font-extrabold tracking-wider"
   }, tr('存活者視角 · 順利走完全程', 'Survivor view · made it through'))), /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
     className: "px-2 py-3 border-r border-slate-200 text-emerald-700 bg-emerald-50/50 align-top"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col items-center gap-0.5"
-  }, /*#__PURE__*/React.createElement("span", null, tr('存活率', 'Survival rate')), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inline-flex items-center gap-0.5 justify-center"
+  }, tr('存活率', 'Survival rate'), " ", /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-72", align: "center", iconClass: "text-emerald-300", size: 11
+  }, tr('存活率＝100−實際失敗率。失敗有兩種：①資產歸零（投組花光、只能靠年金續命）②實質消費跌破門檻。兩者可能落在同一條人生（先跌破、後歸零），所以下方「歸零%」與「跌破%」相加會超過失敗率；存活率已扣掉重疊、不重複計。', 'Survival = 100 minus the actual failure rate. Two failure types: (1) portfolio hits zero (only the pension is left); (2) real spending falls below the threshold. Both can happen in the same life, so the zero%% and cut%% below can sum to more than the failure rate; survival already nets out the overlap.'))), /*#__PURE__*/React.createElement("span", {
     className: "font-normal text-[10px] md:text-[11px] leading-tight tracking-tight text-emerald-500/90"
-  }, tr('撐過全程不破產', 'Survived without ruin'), /*#__PURE__*/React.createElement("br", null), tr('（附：期望存活年）', '(expected survival yrs)')))), /*#__PURE__*/React.createElement("th", {
+  }, tr('失敗原因（歸零｜跌破）', 'Failure cause')))), /*#__PURE__*/React.createElement("th", {
     className: "px-2 py-3 border-r border-slate-100 text-blue-700 bg-blue-50/50 align-top"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col items-center gap-0.5"
@@ -4175,13 +4448,13 @@ const App = () => {
       className: "flex flex-col items-center gap-0.5"
     }, /*#__PURE__*/React.createElement("span", null, (100 - stat.failRate).toFixed(1), "%"), /*#__PURE__*/React.createElement("span", {
       className: "text-[10px] font-normal tracking-tight text-emerald-500/80"
-    }, tr(`歸零 ${stat.pctZero.toFixed(0)}% ｜ 跌破 ${stat.pctShortfall.toFixed(0)}%`, `zero ${stat.pctZero.toFixed(0)}% | cut ${stat.pctShortfall.toFixed(0)}%`), /*#__PURE__*/React.createElement("br", null), tr(`（重疊 ${stat.pctBoth.toFixed(0)}%）`, `(overlap ${stat.pctBoth.toFixed(0)}%)`)))), /*#__PURE__*/React.createElement("td", {
+    }, tr(`歸零 ${stat.pctZero.toFixed(0)}% ｜ 跌破 ${stat.pctShortfall.toFixed(0)}%`, `zero ${stat.pctZero.toFixed(0)}% | cut ${stat.pctShortfall.toFixed(0)}%`)))), /*#__PURE__*/React.createElement("td", {
       className: "px-2 py-3 md:py-4 font-mono font-bold text-blue-700 bg-blue-50/20 border-r border-slate-100"
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex flex-col items-center gap-0.5"
     }, /*#__PURE__*/React.createElement("span", null, stat.qolRate.toFixed(1), "%"), /*#__PURE__*/React.createElement("span", {
       className: "text-[10px] font-normal tracking-tight text-blue-400/80"
-    }, stat.medianShortfall > 0 ? tr(`降級時平均 －${stat.medianShortfall.toFixed(1)}%`, `avg downgrade -${stat.medianShortfall.toFixed(1)}%`) : tr('幾乎不降級', 'almost never')))), /*#__PURE__*/React.createElement("td", {
+    }, stat.medianShortfall >= 0.05 ? tr(`降級時平均 －${stat.medianShortfall.toFixed(1)}%`, `avg downgrade -${stat.medianShortfall.toFixed(1)}%`) : tr('幾乎不降級', 'almost never')))), /*#__PURE__*/React.createElement("td", {
       className: "px-2 py-3 md:py-4 font-mono font-bold text-amber-700 bg-amber-50/20"
     }, stat.medianCV.toFixed(1), "%"));
   }))))))) : renderAuditTrail(), /*#__PURE__*/React.createElement("div", {
