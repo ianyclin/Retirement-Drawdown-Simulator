@@ -981,6 +981,9 @@ const InputSlider = memo(({
 }) => {
   const [inputValue, setInputValue] = useState(value / scale);
   useEffect(() => setInputValue(value / scale), [value, scale]);
+  const _maxDisp = (max != null && scale) ? Math.abs(max / scale) : 0;
+  const _dlen = String(Math.round(_maxDisp)).length;
+  const numW = _dlen >= 6 ? 'w-16 sm:w-20' : (_dlen === 5 ? 'w-12 sm:w-16' : 'w-10 sm:w-12');
   const handleBlur = () => {
     let num = parseFloat(inputValue);
     if (isNaN(num)) num = value / scale;
@@ -1017,7 +1020,7 @@ const InputSlider = memo(({
     onChange: e => setInputValue(e.target.value),
     onBlur: handleBlur,
     onKeyDown: e => e.key === 'Enter' && e.target.blur(),
-    className: "w-10 sm:w-12 text-xs font-mono text-right bg-transparent outline-none p-0 appearance-none font-bold text-slate-700"
+    className: `${numW} text-xs font-mono text-right bg-transparent outline-none p-0 appearance-none font-bold text-slate-700`
   }), /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] text-slate-500 pl-1 shrink-0"
   }, suffix))), /*#__PURE__*/React.createElement("div", {
@@ -1677,6 +1680,9 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [{
+    ver: 'v7.62',
+    changes: ['修正：年金「月領金額」等輸入框拉到六位數（如 100000 以上）會被裁成五位數。輸入框寬度改為依該欄位最大值的位數自適應（六位數自動加寬），其餘欄位維持原寬。'],
+  }, {
     ver: 'v7.61',
     changes: ['龍捲風圖長條長度改用「顯示精度」計算：解決「數值都顯示 100.0% 但長條長度不同」的困惑。原因是標籤四捨五入到 0.1%、長條卻用精確值（如基準 99.97%→顯示 100.0%，改善側 99.99/100.00 都顯示 100.0% 卻長度不同）。現在標籤相同→長度相同；差距 <0.05%（落在蒙地卡羅抽樣雜訊內）直接畫 0、不再硬塞最小寬度，避免無效果變因（如退休年齡/初始資本）出現誤導性小色塊。有意義的排序（如惡化側 99.7/99.8/99.9）完整保留。'],
   }, {
@@ -3011,7 +3017,7 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-slate-700 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.61"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.62"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-slate-500"
