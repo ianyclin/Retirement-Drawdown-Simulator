@@ -1680,6 +1680,9 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [{
+    ver: 'v7.63',
+    changes: ['修正：「資產與提領趨勢」切換淨值／提領／存活率時，主切換鈕位置會移動。原因是「提領」才出現的「實質／名目」切換用 justify-between 重新分配空間、把主切換鈕從右側擠到中間。改為將主切換鈕與（條件出現的）實質／名目一起包進靠右群組，桌面用 flex-row-reverse 讓主切換鈕固定在最右、實質／名目出現在其左側；主切換鈕位置不再變動。手機維持原本上下堆疊。'],
+  }, {
     ver: 'v7.62',
     changes: ['修正：年金「月領金額」等輸入框拉到六位數（如 100000 以上）會被裁成五位數。輸入框寬度改為依該欄位最大值的位數自適應（六位數自動加寬），其餘欄位維持原寬。'],
   }, {
@@ -3017,7 +3020,7 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-slate-700 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.62"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.63"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-slate-500"
@@ -4013,7 +4016,7 @@ const App = () => {
   }, tr('市場中位宇宙', 'Median-market universe'), /*#__PURE__*/React.createElement(InfoPopover, {
     w: "w-56",
     size: 12
-  }, tr('從全部宇宙中，依「累積市場報酬」排序取中位的那一條，讓所有策略走在同一條市場路徑上做公平對比。注意：這是「市場」中位，非各策略「結果」的中位數。', 'From all universes, the one whose cumulative market return is the median, so every strategy runs on the same market path for a fair comparison. Note: this is the "market" median, not the median of each strategy outcome.')))), /*#__PURE__*/React.createElement("div", {
+  }, tr('從全部宇宙中，依「累積市場報酬」排序取中位的那一條，讓所有策略走在同一條市場路徑上做公平對比。注意：這是「市場」中位，非各策略「結果」的中位數。', 'From all universes, the one whose cumulative market return is the median, so every strategy runs on the same market path for a fair comparison. Note: this is the "market" median, not the median of each strategy outcome.')))), /*#__PURE__*/React.createElement("div", { className: "flex flex-col sm:flex-row-reverse items-stretch sm:items-center gap-2 sm:gap-1.5 w-full sm:w-auto" }, /*#__PURE__*/React.createElement("div", {
     className: "bg-slate-100 p-1 rounded-lg flex text-[10px] md:text-xs font-bold shadow-inner"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setViewMode('netWorth'),
@@ -4025,7 +4028,7 @@ const App = () => {
     onClick: () => setViewMode('survival'),
     className: `flex-1 sm:flex-none px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${viewMode === 'survival' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`
   }, tr('存活率', 'Survival'))), viewMode === 'withdrawal' && /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-1.5 ml-0 sm:ml-auto self-end sm:self-auto"
+    className: "flex items-center gap-1.5 self-end sm:self-auto shrink-0"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-slate-100 p-1 rounded-lg inline-flex text-[10px] md:text-xs font-bold shadow-inner"
   }, /*#__PURE__*/React.createElement("button", {
@@ -4036,7 +4039,7 @@ const App = () => {
     className: `px-2.5 md:px-3 py-1 md:py-1.5 rounded-md transition-all ${!withdrawalReal ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`
   }, tr('\u540D\u76EE', 'Nominal'))), /*#__PURE__*/React.createElement(InfoPopover, { w: "w-60", align: "right", placement: "down", size: 12 }, /*#__PURE__*/React.createElement("div", {
     className: "space-y-1 leading-relaxed"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", { className: "text-white" }, "實質"), "：去通膨（折回今日購買力，方便與首年比較；固定實質的傳統提領會攤平成水平線）。"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", { className: "text-white" }, "名目"), "：含通膨（帳面金額，逐年隨通膨墊高）。"))))), isSimulating ? /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", { className: "text-white" }, "實質"), "：去通膨（折回今日購買力，方便與首年比較；固定實質的傳統提領會攤平成水平線）。"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", { className: "text-white" }, "名目"), "：含通膨（帳面金額，逐年隨通膨墊高）。")))))), isSimulating ? /*#__PURE__*/React.createElement("div", {
     className: "h-[300px] md:h-[400px] w-full flex items-center justify-center bg-slate-50 rounded-lg"
   }, /*#__PURE__*/React.createElement(Activity, {
     className: "animate-pulse text-slate-500",
