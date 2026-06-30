@@ -1329,8 +1329,8 @@ const PensionSourceCard = ({ s, onChange, tr }) => {
       div("flex items-center justify-between",
         /*#__PURE__*/React.createElement("span", { className: "text-[10px] text-slate-500" }, tr('領法', 'Payout')),
         div("flex rounded-md overflow-hidden border border-emerald-200 text-[9px] font-bold",
-          seg(s.mode === 'monthly', () => onChange(s.key, { mode: 'monthly' }), tr('月領', 'Monthly')),
-          div("border-l border-emerald-200", seg(s.mode === 'annual', () => onChange(s.key, { mode: 'annual' }), tr('年領', 'Annual'))),
+          seg(s.mode === 'monthly', () => onChange(s.key, s.mode === 'annual' ? { mode: 'monthly', amount: Math.round(s.amount / 12) } : { mode: 'monthly' }), tr('月領', 'Monthly')),
+          div("border-l border-emerald-200", seg(s.mode === 'annual', () => onChange(s.key, s.mode === 'monthly' ? { mode: 'annual', amount: Math.round(s.amount * 12) } : { mode: 'annual' }), tr('年領', 'Annual'))),
           div("border-l border-emerald-200", seg(s.mode === 'lump', () => onChange(s.key, { mode: 'lump' }), tr('一次', 'Lump')))
         )
       ),
@@ -1339,8 +1339,8 @@ const PensionSourceCard = ({ s, onChange, tr }) => {
         value: s.amount, setter: v => onChange(s.key, { amount: v }),
         min: 0, max: s.mode === 'lump' ? 20000000 : s.mode === 'annual' ? 2400000 : 200000,
         step: s.mode === 'lump' ? 100000 : s.mode === 'annual' ? 10000 : 1000,
-        scale: s.mode === 'lump' ? 10000 : 1,
-        suffix: s.mode === 'lump' ? tr('萬', '×10k') : s.mode === 'annual' ? tr('元/年', '/yr') : tr('元/月', '/mo'),
+        scale: s.mode === 'monthly' ? 1 : 10000,
+        suffix: s.mode === 'lump' ? tr('萬', '×10k') : s.mode === 'annual' ? tr('萬/年', '×10k/yr') : tr('元/月', '/mo'),
         color: "emerald"
       }),
       /*#__PURE__*/React.createElement(InputSlider, {
@@ -1506,6 +1506,11 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [{
+    ver: 'v7.47',
+    changes: ['【年金來源：月領⇄年領切換自動換算】先前點「月領／年領」只改領法、不動金額，導致同一個數字被改口徑（月領 19,000 點成年領＝靜默變 19,000／年＝原本的 1/12）。現改為月↔年互切時自動 ×12／÷12，維持真實年現金流不變；一次領為「存量」不換算。',
+'【年領金額顯示修正】年領金額欄 scale 由 1 改為 10000、單位改「萬／年」（與一次領一致），原本拉到最大顯示 7 位數 2,400,000 會在窄欄被裁切（誤看成 24000）；現顯示「240 萬／年」不裁切。引擎讀值不變（年領仍為名目年金額）。',
+'【沿用既有正確性】純 UI 改動、未動引擎；高斯哨兵 [29.2,30,30,30] 不變；單位口徑、失敗聯集、品質佔比（survived && !everZeroed）等先前修正全數保留。'],
+  }, {
     ver: 'v7.46',
     changes: ['\u3010\u4FEE\u6B63\uFF1A\u751F\u6D3B\u54C1\u8CEA\u4F54\u6BD4\u53E3\u5F91\u4E00\u81F4\u3011\u300C\u9810\u671F\u751F\u6D3B\u54C1\u8CEA\u4F54\u6BD4\uFF08\u5B58\u6D3B\u8005\u8996\u89D2\u00B7\u9806\u5229\u8D70\u5B8C\u5168\u7A0B\uFF09\u300D\u6539\u70BA\u53EA\u8A08\u300C\u6295\u7D44\u672A\u6B78\u96F6\u300D\u7684\u5B58\u6D3B\u8DEF\u5F91\u3002\u5148\u524D\u958B\u5E74\u91D1\u6642\uFF0C\u66FE\u628A\u6295\u7D44\u82B1\u5149\u3001\u4E4B\u5F8C\u53EA\u9760\u5E74\u91D1\u7E8C\u547D\u7684\u8DEF\u5F91\uFF08\u5DF2\u5728\u6210\u529F\u7387\u88AB\u7B97\u4F5C\u300C\u8CC7\u7522\u6B78\u96F6\u300D\u5931\u6557\uFF09\u4ECD\u88AB\u7576\u6210\u300C\u6DF1\u5EA6\u964D\u7D1A\u7684\u5B58\u6D3B\u8005\u300D\u91CD\u8907\u8A08\u5206\uFF0C\u4F7F\u50B3\u7D71\u7684\u300C\u964D\u7D1A\u6DF1\u5EA6\u300D\u704C\u6C34\u5230 ~53%\u3002\u4FEE\u6B63\u5F8C\u50B3\u7D71\u958B\u5E74\u91D1\u986F\u793A\u300C\u5E7E\u4E4E\u4E0D\u964D\u7D1A\u300D\uFF08\u5176\u5B58\u6D3B\u8DEF\u5F91\u7A69\u7A69\u7DAD\u6301\u76EE\u6A19\uFF09\uFF0C\u6B78\u96F6\u7684\u6B78\u5230\u300C\u8CC7\u7522\u6B78\u96F6\u300D\u3002', '\u3010\u91D0\u6E05\u3011\u6DF1\u5EA6\u6578\u5B57\u662F\u300C\u5728\u6709\u964D\u7D1A\u7684\u8DEF\u5F91\u4E2D\u53D6\u4E2D\u4F4D\u6578\u300D\uFF08\u975E\u5C0D\u5168\u90E8\u5B58\u6D3B\u8DEF\u5F91\u3001\u4E0D\u964D\u7D1A\uFF1D0\uFF09\uFF1B\u6D6E\u5C64\u540C\u6B65\u91CD\u5BEB\u8AAA\u660E\u6B64\u53E3\u5F91\u8207\u300C\u672A\u6B78\u96F6\u624D\u7B97\u5B58\u6D3B\u8005\u300D\u3002', '\u3010\u6CBF\u7528\u65E2\u6709\u6B63\u78BA\u6027\u3011\u95DC\u5E74\u91D1\u6642 everZeroed \u6046\u70BA false \u2192 \u5F15\u64CE\u8207\u7D71\u8A08\u5B8C\u5168\u4E0D\u8B8A\uFF08\u9AD8\u65AF\u54E8\u5175 [29.2,30,30,30] \u4E0D\u8B8A\uFF09\uFF1B\u9580\u6ABB\u806F\u96C6\u3001\u96D9\u56E0\u5B50\u5931\u6557\u7B49\u5148\u524D\u4FEE\u6B63\u5168\u4FDD\u7559\u3002']
   }, {
@@ -2720,7 +2725,7 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-indigo-600 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.46"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.47"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-indigo-400"
