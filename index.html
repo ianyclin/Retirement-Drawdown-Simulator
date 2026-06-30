@@ -1400,6 +1400,8 @@ const TornadoChart = memo(function TornadoChart({ data, sid, metric, tr, isMobil
   if (!data || !data.base || !data.base[sid]) return null;
   const meta = TORNADO_METRICS[metric];
   const base = data.base[sid][metric];
+  const rnd = function(v){ return parseFloat(meta.fmt(v)); };
+  const baseR = rnd(base);
   const goodness = function(v){ return meta.worseIsHigh ? -v : v; };
   const rows = data.rows.map(function(r){
     const loV = r.lo[sid][metric], hiV = r.hi[sid][metric];
@@ -1407,7 +1409,7 @@ const TornadoChart = memo(function TornadoChart({ data, sid, metric, tr, isMobil
     if (goodness(loV) <= goodness(hiV)) { leftV = loV; leftDelta = -r.delta; rightV = hiV; rightDelta = r.delta; }
     else { leftV = hiV; leftDelta = r.delta; rightV = loV; rightDelta = -r.delta; }
     return { label: r.label, dunit: r.dunit, leftV: leftV, leftDelta: leftDelta, rightV: rightV, rightDelta: rightDelta,
-      leftLen: Math.abs(leftV - base), rightLen: Math.abs(rightV - base) };
+      leftLen: Math.abs(rnd(leftV) - baseR), rightLen: Math.abs(rnd(rightV) - baseR) };
   });
   rows.sort(function(a, b){ return (b.leftLen + b.rightLen) - (a.leftLen + a.rightLen); });
   if (!rows.length) {
@@ -1430,8 +1432,8 @@ const TornadoChart = memo(function TornadoChart({ data, sid, metric, tr, isMobil
       const ryN = top + i * rowH + 10, ry = top + i * rowH + 30;
       const lLen = px(r.leftLen), rLen = px(r.rightLen);
       ch.push(React.createElement('text', { key: 'nm' + i, x: cx, y: ryN, textAnchor: 'middle', fill: '#0f172a', fontSize: 11, fontWeight: 700 }, r.label));
-      ch.push(React.createElement('rect', { key: 'lb' + i, x: cx - lLen, y: ry - 8, width: Math.max(1.5, lLen), height: 16, rx: 2.5, fill: TORNADO_ROSE, opacity: 0.88 }));
-      ch.push(React.createElement('rect', { key: 'rb' + i, x: cx, y: ry - 8, width: Math.max(1.5, rLen), height: 16, rx: 2.5, fill: TORNADO_EMER, opacity: 0.88 }));
+      ch.push(React.createElement('rect', { key: 'lb' + i, x: cx - lLen, y: ry - 8, width: lLen > 0 ? Math.max(2, lLen) : 0, height: 16, rx: 2.5, fill: TORNADO_ROSE, opacity: 0.88 }));
+      ch.push(React.createElement('rect', { key: 'rb' + i, x: cx, y: ry - 8, width: rLen > 0 ? Math.max(2, rLen) : 0, height: 16, rx: 2.5, fill: TORNADO_EMER, opacity: 0.88 }));
       ch.push(React.createElement('text', { key: 'lt' + i, x: cx - lLen - 5, y: ry + 3.5, textAnchor: 'end', fill: '#be123c', fontSize: 9.5 }, fmtD(r.leftDelta, r.dunit) + '　' + meta.fmt(r.leftV)));
       ch.push(React.createElement('text', { key: 'rt' + i, x: cx + rLen + 5, y: ry + 3.5, textAnchor: 'start', fill: '#0f766e', fontSize: 9.5 }, fmtD(r.rightDelta, r.dunit) + '　' + meta.fmt(r.rightV)));
     });
@@ -1450,8 +1452,8 @@ const TornadoChart = memo(function TornadoChart({ data, sid, metric, tr, isMobil
   rows.forEach(function(r, i){
     const ry = top + i * rowH + rowH / 2;
     const lLen = px(r.leftLen), rLen = px(r.rightLen);
-    ch.push(React.createElement('rect', { key: 'lb' + i, x: cx - lLen, y: ry - 8.5, width: Math.max(1.5, lLen), height: 17, rx: 2.5, fill: TORNADO_ROSE, opacity: 0.88 }));
-    ch.push(React.createElement('rect', { key: 'rb' + i, x: cx, y: ry - 8.5, width: Math.max(1.5, rLen), height: 17, rx: 2.5, fill: TORNADO_EMER, opacity: 0.88 }));
+    ch.push(React.createElement('rect', { key: 'lb' + i, x: cx - lLen, y: ry - 8.5, width: lLen > 0 ? Math.max(2, lLen) : 0, height: 17, rx: 2.5, fill: TORNADO_ROSE, opacity: 0.88 }));
+    ch.push(React.createElement('rect', { key: 'rb' + i, x: cx, y: ry - 8.5, width: rLen > 0 ? Math.max(2, rLen) : 0, height: 17, rx: 2.5, fill: TORNADO_EMER, opacity: 0.88 }));
     ch.push(React.createElement('text', { key: 'll' + i, x: leftMargin, y: ry + 3.5, textAnchor: 'start', fill: '#334155', fontSize: 11.5, fontWeight: 600 }, r.label + ' ' + fmtD(r.leftDelta, r.dunit)));
     ch.push(React.createElement('text', { key: 'lv' + i, x: cx - lLen - 6, y: ry + 3.5, textAnchor: 'end', fill: '#be123c', fontSize: 10.5 }, meta.fmt(r.leftV)));
     ch.push(React.createElement('text', { key: 'rl' + i, x: lblR, y: ry + 3.5, textAnchor: 'start', fill: '#334155', fontSize: 11.5, fontWeight: 600 }, r.label + ' ' + fmtD(r.rightDelta, r.dunit)));
@@ -1487,7 +1489,7 @@ const TornadoPanel = ({ data, panel, idx, onChange, onRemove, canRemove, strateg
     React.createElement(TornadoChart, { data: data, sid: panel.sid, metric: panel.metric, tr: tr, isMobile: isMobile }));
 };
 
-const TornadoCard = ({ data, busy, onCompute, deltas, setDeltas, enabled, setEnabled, panels, setPanels, strategies, sName, tr }) => {
+const TornadoCard = ({ data, busy, onCompute, deltas, setDeltas, enabled, setEnabled, bases, panels, setPanels, strategies, sName, tr }) => {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 640);
   useEffect(function(){
     const h = function(){ setIsMobile(window.innerWidth < 640); };
@@ -1511,24 +1513,30 @@ const TornadoCard = ({ data, busy, onCompute, deltas, setDeltas, enabled, setEna
     { k: 'inflation', label: tr('通膨', 'Infl'), step: 0.25, unit: '%' },
     { k: 'capPct', label: tr('資本', 'Cap'), step: 10, unit: '%' }
   ];
+  const bv = bases || {};
+  const ubase = function(n, unit){ if (n == null) return ''; const s = (typeof n === 'number' && Math.abs(n) >= 1000) ? Math.round(n).toLocaleString() : String(+n); return s + unit; };
+  const baseStr = { cagr: ubase(bv.cagr, '%'), vol: ubase(bv.vol, '%'), wr: ubase(bv.wr, '%'), years: ubase(bv.years, tr('年', 'y')), retireAge: ubase(bv.retireAge, tr('歲', 'y/o')), inflation: ubase(bv.inflation, '%'), capPct: ubase(bv.capital, tr('萬', '0k')) };
   return React.createElement('div', { className: "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden" },
     React.createElement('div', { className: "bg-slate-50 px-4 md:px-5 py-3 md:py-4 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2" },
       React.createElement('h3', { className: "font-extrabold text-slate-800 text-sm md:text-base" }, tr('敏感度龍捲風圖', 'Sensitivity tornado')),
       React.createElement('button', { onClick: onCompute, disabled: busy, className: "text-[11px] md:text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-50 transition-colors shrink-0" },
         busy ? tr('計算中…', 'Computing…') : (data ? tr('更新', 'Update') : tr('計算龍捲風圖', 'Compute tornado')))),
     React.createElement('div', { className: "p-3 md:p-4 space-y-3" },
-      React.createElement('div', { className: "flex flex-wrap items-center gap-x-3 gap-y-1.5" },
-        React.createElement('span', { className: "text-[10px] md:text-[11px] text-slate-400 font-bold" }, tr('變因（勾選比較）／幅度 ±', 'Variables / Δ ±')),
+      React.createElement('div', { className: "flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-x-3 gap-y-1 sm:gap-y-1.5" },
+        React.createElement('span', { className: "w-full sm:w-auto text-[10px] md:text-[11px] text-slate-400 font-bold mb-0.5 sm:mb-0" }, tr('變因（勾選比較）　現值 ± 幅度', 'Variables · base ± Δ')),
         dItems.map(function(it){
           const on = !!enabled[it.k];
-          return React.createElement('div', { key: it.k, className: "flex items-center gap-1 text-[10px] md:text-[11px] " + (on ? "text-slate-600" : "text-slate-300") },
-            React.createElement('label', { className: "flex items-center gap-1 cursor-pointer select-none" },
+          return React.createElement('div', { key: it.k, className: "flex items-center justify-between sm:justify-start w-full sm:w-auto gap-2 sm:gap-1 text-[10px] md:text-[11px] " + (on ? "text-slate-600" : "text-slate-300") },
+            React.createElement('label', { className: "flex items-center gap-1 cursor-pointer select-none min-w-0" },
               React.createElement('input', { type: 'checkbox', checked: on, onChange: function(){ setEnabled(function(en){ const o = Object.assign({}, en); o[it.k] = !o[it.k]; return o; }); }, className: "accent-slate-600 w-3 h-3" }),
-              React.createElement('span', null, it.label)),
-            React.createElement('input', { type: 'number', value: deltas[it.k], step: it.step, min: 0, disabled: !on,
-              onChange: function(e){ const v = parseFloat(e.target.value); setDeltas(function(d){ const o = Object.assign({}, d); o[it.k] = isNaN(v) ? 0 : v; return o; }); },
-              className: "w-12 px-1 py-0.5 rounded border text-right text-[11px] focus:outline-none " + (on ? "border-slate-300 text-slate-700 focus:border-slate-400" : "border-slate-200 text-slate-300 bg-slate-50") }),
-            React.createElement('span', { className: on ? "text-slate-400" : "text-slate-300" }, it.unit));
+              React.createElement('span', null, it.label),
+              baseStr[it.k] ? React.createElement('span', { className: "text-slate-400 font-normal ml-0.5" }, baseStr[it.k]) : null),
+            React.createElement('div', { className: "flex items-center gap-1 shrink-0" },
+              React.createElement('span', { className: "text-slate-400" }, '±'),
+              React.createElement('input', { type: 'number', value: deltas[it.k], step: it.step, min: 0, disabled: !on,
+                onChange: function(e){ const v = parseFloat(e.target.value); setDeltas(function(d){ const o = Object.assign({}, d); o[it.k] = isNaN(v) ? 0 : v; return o; }); },
+                className: "w-12 px-1 py-0.5 rounded border text-right text-[11px] focus:outline-none " + (on ? "border-slate-300 text-slate-700 focus:border-slate-400" : "border-slate-200 text-slate-300 bg-slate-50") }),
+              React.createElement('span', { className: on ? "text-slate-400" : "text-slate-300" }, it.unit)));
         })),
       busy ? React.createElement('div', { className: "py-6 text-center text-xs text-slate-400" }, tr('計算中…（基準＋每個變因各 ±Δ 重跑）', 'Computing…'))
         : (data ? React.createElement('div', { className: "space-y-3" },
@@ -1669,6 +1677,15 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [{
+    ver: 'v7.61',
+    changes: ['龍捲風圖長條長度改用「顯示精度」計算：解決「數值都顯示 100.0% 但長條長度不同」的困惑。原因是標籤四捨五入到 0.1%、長條卻用精確值（如基準 99.97%→顯示 100.0%，改善側 99.99/100.00 都顯示 100.0% 卻長度不同）。現在標籤相同→長度相同；差距 <0.05%（落在蒙地卡羅抽樣雜訊內）直接畫 0、不再硬塞最小寬度，避免無效果變因（如退休年齡/初始資本）出現誤導性小色塊。有意義的排序（如惡化側 99.7/99.8/99.9）完整保留。'],
+  }, {
+    ver: 'v7.60',
+    changes: ['龍捲風圖變因列手機版改版：窄螢幕（<640px）每個變因獨立整列，勾選框齊左對齊、「± 幅度」控制組齊右（justify-between），現值置中於兩者間；桌面維持原本 inline 換行排列。'],
+  }, {
+    ver: 'v7.59',
+    changes: ['龍捲風圖變因勾選列加註各變因「現值」：顯示為「變因 現值 ± 幅度」（如 模擬年限 30年 ±5年、股票報酬 7.6% ±1%、資本 2,000萬 ±10%），讓 ±Δ 有明確的錨點；現值隨模型設定即時更新。圖上維持只顯示 ±Δ 與結果數值（基準值兩側共用、放控制列不重複、保持圖面乾淨）。'],
+  }, {
     ver: 'v7.58',
     changes: ['龍捲風圖步進鈕幅度調整：模擬年限 ±5年、退休年齡 ±5歲、資本 ±10%（每按一下上下鈕的增減量）。'],
   }, {
@@ -2994,7 +3011,7 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-slate-700 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.58"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.61"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-slate-500"
@@ -4217,7 +4234,7 @@ const App = () => {
     }, /*#__PURE__*/React.createElement("b", { className: "text-slate-600" }, tr('勞保能不能一次領？', 'Labor insurance lump?')), tr(' 2009 年金化後，新年資只能「月領」；一次請領僅限 2009 施行前已有年資者。能自由選月領／一次領的是「勞退（個人專戶）」，故本比較聚焦勞退。', ' Post-2009 seniority is annuity-only; the free monthly/lump choice applies to the labor pension — what this compares.')), /*#__PURE__*/React.createElement("p", {
       className: "text-[9px] text-slate-500 leading-relaxed"
     }, /*#__PURE__*/React.createElement("b", { className: "text-slate-600" }, tr('讀法：', 'How to read: ')), tr('月領缺口小、失敗較軟（保底較高）；一次領把那筆錢投入投組，期末資產與遺產潛力通常較高、成功率不一定輸（勞退年金化利率僅約 1.1%），但失敗較硬、自負長壽與投資風險。沒有單一正解，看你重視「保證收入＋軟著陸」還是「期望報酬＋控制權」。', 'Monthly: softer failure, guaranteed income. Lump: usually higher ending wealth/bequest with comparable success, but harder failure and you bear longevity/investment risk.')))));
-  })(), /*#__PURE__*/React.createElement(TornadoCard, { data: tornadoData, busy: tornadoBusy, onCompute: computeTornado, deltas: tornadoDeltas, setDeltas: setTornadoDeltas, enabled: tornadoEnabled, setEnabled: setTornadoEnabled, panels: tornadoPanels, setPanels: setTornadoPanels, strategies: activeStrategies, sName: sName, tr: tr }), /*#__PURE__*/React.createElement("div", {
+  })(), /*#__PURE__*/React.createElement(TornadoCard, { data: tornadoData, busy: tornadoBusy, onCompute: computeTornado, deltas: tornadoDeltas, setDeltas: setTornadoDeltas, enabled: tornadoEnabled, setEnabled: setTornadoEnabled, bases: { cagr: cagr, vol: volatility, wr: initialWithdrawalRate, years: years, retireAge: retireAge, inflation: inflation, capital: initialCapital }, panels: tornadoPanels, setPanels: setTornadoPanels, strategies: activeStrategies, sName: sName, tr: tr }), /*#__PURE__*/React.createElement("div", {
     className: "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-slate-50 px-4 md:px-5 py-3 md:py-4 border-b border-slate-200 flex justify-between items-center"
