@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>退休動態提領模擬器 v7.46</title>
+    <title>退休動態提領模擬器 v7.76</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -802,7 +802,8 @@ const HIST_ASSETS = [{
   en: 'Gold',
   color: '#eab308'
 }];
-const SPONSOR_URL = ''; // 贊助連結：填入你的 Ko-fi / Buy Me a Coffee / 綠界收款頁網址後，頁尾自動出現「請我喝杯咖啡」按鈕；留空則不顯示
+const SPONSOR_URL_TW = 'https://p.ecpay.com.tw/A0E52B5'; // 綠界收款連結（台灣，ATM/刷卡依審核開通狀態）
+const SPONSOR_URL = 'https://ko-fi.com/3baofan'; // 贊助連結：填入你的 Ko-fi / Buy Me a Coffee / 綠界收款頁網址後，頁尾自動出現「請我喝杯咖啡」按鈕；留空則不顯示
 // ===== 分享設定連結：URL hash 序列化（base64url JSON）與載入清洗 =====
 const cfgEncode = obj => { try { return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); } catch (e) { return ''; } };
 const cfgDecode = s => { try { s = String(s).replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return JSON.parse(decodeURIComponent(escape(atob(s)))); } catch (e) { return null; } };
@@ -1850,6 +1851,19 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [
+    {
+      ver: 'v7.76',
+      changes: [
+        '贊助改為雙通道：頁尾「請我喝杯咖啡」分為（台灣）→ 綠界收款連結（p.ecpay.com.tw/A0E52B5）與（國際）→ Ko-fi。分工依據制度現實：綠界個人會員自 2023 起僅收國內卡、PayPal 依金管會規範禁止台灣帳戶間交易——台灣贊助者走綠界、海外與旅外者走 Ko-fi，兩通道零重疊。'
+      ],
+    },
+    {
+      ver: 'v7.75',
+      changes: [
+        '贊助按鈕上線：頁尾「覺得有幫助？請我喝杯咖啡」連至 Ko-fi（ko-fi.com/3baofan，新分頁開啟）。工具本體維持完全免費、無廣告、資料不出瀏覽器。',
+        '策略計算原理頁尾新增 AI 協作揭露：本工具以 AI 協作開發（Anthropic Claude），所有計算邏輯經人工審核、封閉解驗證、歷史回歸測試與逐版哨兵把關；驗證方法詳見版本紀錄。'
+      ],
+    },
     {
       ver: 'v7.74',
       changes: [
@@ -3676,7 +3690,7 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-slate-700 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.74"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.76"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-slate-500"
@@ -3799,7 +3813,9 @@ const App = () => {
     className: "text-[10px] text-slate-500 leading-relaxed border-t border-slate-100 pt-2"
   }, /*#__PURE__*/React.createElement("div", {
     className: "font-bold text-slate-600 mb-1"
-  }, tr('參考文獻', 'References')), /*#__PURE__*/React.createElement("div", null, "Bengen, W. (1994). Determining Withdrawal Rates Using Historical Data. Journal of Financial Planning, 7(4)."), /*#__PURE__*/React.createElement("div", null, "Pfau, W. & Kitces, M. (2014). Reducing Retirement Risk with a Rising Equity Glide Path. Journal of Financial Planning, 27(1)."), /*#__PURE__*/React.createElement("div", null, tr("Kitces, M. (2016). The Bond Tent／Retirement Red Zone 系列. kitces.com.", "Kitces, M. (2016). The Bond Tent / Retirement Red Zone series. kitces.com.")), /*#__PURE__*/React.createElement("div", null, "Blanchett, D. (2015). Revisiting the Optimal Distribution Glide Path. Journal of Financial Planning."), /*#__PURE__*/React.createElement("div", null, "Estrada, J. (2016). The Retirement Glidepath: An International Perspective. Journal of Investing.")))), /*#__PURE__*/React.createElement("button", { onClick: () => setShowDefinitions(false), className: "mt-5 w-full py-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-colors" }, tr('關閉此頁 ✕', 'Close ✕'))), showManual && /*#__PURE__*/React.createElement("div", {
+  }, tr('參考文獻', 'References')), /*#__PURE__*/React.createElement("div", null, "Bengen, W. (1994). Determining Withdrawal Rates Using Historical Data. Journal of Financial Planning, 7(4)."), /*#__PURE__*/React.createElement("div", null, "Pfau, W. & Kitces, M. (2014). Reducing Retirement Risk with a Rising Equity Glide Path. Journal of Financial Planning, 27(1)."), /*#__PURE__*/React.createElement("div", null, tr("Kitces, M. (2016). The Bond Tent／Retirement Red Zone 系列. kitces.com.", "Kitces, M. (2016). The Bond Tent / Retirement Red Zone series. kitces.com.")), /*#__PURE__*/React.createElement("div", null, "Blanchett, D. (2015). Revisiting the Optimal Distribution Glide Path. Journal of Financial Planning."), /*#__PURE__*/React.createElement("div", null, "Estrada, J. (2016). The Retirement Glidepath: An International Perspective. Journal of Investing.")))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-4 pt-3 border-t border-slate-100 text-[10px] text-slate-400 leading-relaxed"
+  }, tr('本工具以 AI 協作開發（Anthropic Claude），所有計算邏輯經人工審核、封閉解驗證、歷史回歸測試與逐版哨兵把關；驗證方法詳見版本紀錄。', 'Built in collaboration with AI (Anthropic Claude); all computational logic is human-reviewed and verified via closed-form checks, historical regression tests, and per-release sentinel guards. See version history for methodology.')), /*#__PURE__*/React.createElement("button", { onClick: () => setShowDefinitions(false), className: "mt-5 w-full py-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-colors" }, tr('關閉此頁 ✕', 'Close ✕'))), showManual && /*#__PURE__*/React.createElement("div", {
     className: "mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0 relative"
   }, /*#__PURE__*/React.createElement("button", { onClick: () => setShowManual(false), title: tr('關閉', 'Close'), className: "absolute top-2 right-4 md:right-2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-sm font-bold shadow-sm" }, "\u2715"), /*#__PURE__*/React.createElement("div", {
     className: "bg-white border border-slate-200 rounded-xl p-4 md:p-6 shadow-sm"
@@ -5321,14 +5337,27 @@ const App = () => {
     className: "mt-8 mb-2 text-center space-y-2 lg:shrink-0"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-[10px] text-slate-400"
-  }, tr('本工具完全免費・無廣告・所有輸入資料只留在你的瀏覽器，不會上傳任何伺服器。', 'Free and ad-free; everything you enter stays in your browser.')), SPONSOR_URL ? /*#__PURE__*/React.createElement("a", {
+  }, tr('本工具完全免費・無廣告・所有輸入資料只留在你的瀏覽器，不會上傳任何伺服器。', 'Free and ad-free; everything you enter stays in your browser.')), (SPONSOR_URL_TW || SPONSOR_URL) ? /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-slate-400"
+  }, tr('覺得有幫助？可以請作者喝杯咖啡：', 'Found it useful? Buy the author a coffee:')), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center justify-center gap-2"
+  }, SPONSOR_URL_TW ? /*#__PURE__*/React.createElement("a", {
+    href: SPONSOR_URL_TW,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 text-xs font-bold transition-colors"
+  }, /*#__PURE__*/React.createElement(Coffee, {
+    size: 14
+  }), tr('請我喝杯咖啡（台灣）', 'Buy me a coffee (Taiwan)')) : null, SPONSOR_URL ? /*#__PURE__*/React.createElement("a", {
     href: SPONSOR_URL,
     target: "_blank",
     rel: "noopener noreferrer",
     className: "inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 text-xs font-bold transition-colors"
   }, /*#__PURE__*/React.createElement(Coffee, {
     size: 14
-  }), tr('覺得有幫助？請我喝杯咖啡', 'Found it useful? Buy me a coffee')) : null));
+  }), tr('請我喝杯咖啡（國際）', 'Buy me a coffee (International)')) : null)) : null));
 };
 const root = createRoot(document.getElementById('root'));
 root.render(/*#__PURE__*/React.createElement(App, null));
