@@ -28,7 +28,7 @@
         @media (min-width: 1024px) {
             /* app-shell 雙面板:外層 h-screen flex-col,header 固定(shrink-0),grid 以 flex-1 填滿其下剩餘空間並設 grid-rows-1(單列 1fr)。
                兩欄為 grid 子項,min-height:0＋height:100% 取得確定高度後 overflow-y:auto 各自獨立捲動。 */
-            .work-pane { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+            .panes-locked .work-pane { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
         }
         
         .sticky-col { position: sticky; left: 0; background-color: #ffffff; z-index: 20; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1); }
@@ -1851,6 +1851,13 @@ const App = () => {
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [
     {
+      ver: 'v7.74',
+      changes: [
+        '修正：說明面板開啟時，滑鼠在左側參數欄或右側報告欄上無法捲動頁面（只有兩欄中間的空隙可捲）。根因：桌機雙欄各自獨立捲動的 .work-pane 自訂 CSS（height:100%＋overflow-y:auto＋overscroll-behavior:contain）寫在 @media 桌機區塊、無條件生效——v7.70 只條件化了 Tailwind 容器類，漏了這層。游標壓在欄上時滾輪被欄攔截、且 overscroll-behavior 阻斷鏈到頁面，於是「讀到面板底部、游標落到欄的起點」就出現卡住感。修法：規則整條改掛在 .panes-locked 之下，容器僅在鎖定版型（無面板開啟）帶此 class；面板開啟＝全頁單一捲動、游標在任何位置都可捲，關閉後恢復雙欄獨立捲動。',
+        '四個說明面板右上角新增圓形 ✕ 關閉鈕（與底部「關閉此頁」並存）——不必捲到任何特定位置即可關閉。'
+      ],
+    },
+    {
       ver: 'v7.73',
       changes: [
         '財經專家級黑箱稽核（不看程式碼、以領域邏輯操作工具）全數通過：①零波動極限與封閉解逐位吻合（wr4 期末實質倍數 1.17 兩邊一致、存活者實質總提領恰為 2400 萬；wr10 引擎「存活 12 年／第 13 年破產」與手算一致——ESY 與 avgRuinYear 為自洽的計數慣例、非誤差）；②三組恆等式零差異（滑翔起點＝終點≡靜態、股債假設相同時任意配置≡單資產、Yale 權重 100%≡傳統法則）；③單調性全對（波動↑成功↓、通膨↑成功↓、崩盤 8.0%＜86.8%、年金開 99.8%＞86.8%）；④機制尖角正確（Vanguard 上下限歸零→名目凍結→實質購買力 23 年腰斬→跌破率精確 100%）；⑤bootstrap 對數均值對齊目標報酬（|Δ|=0.0008）。',
@@ -3660,7 +3667,7 @@ const App = () => {
   const effN = simResults ? simResults.effSimCount : simCount;
   const effIsHist = !!(simResults && simResults.marketMode === 'hist');
   return /*#__PURE__*/React.createElement("div", {
-    className: `max-w-[1400px] mx-auto px-2 md:px-5 lg:px-6 ${showDefinitions || showTwFloor || showManual || showReport ? 'py-2 md:py-5 lg:py-6 pb-20' : 'py-2 md:py-5 pb-20 lg:py-3 lg:pb-3 lg:h-screen lg:flex lg:flex-col lg:overflow-hidden'}`
+    className: `max-w-[1400px] mx-auto px-2 md:px-5 lg:px-6 ${showDefinitions || showTwFloor || showManual || showReport ? 'py-2 md:py-5 lg:py-6 pb-20' : 'py-2 md:py-5 pb-20 lg:py-3 lg:pb-3 lg:h-screen lg:flex lg:flex-col lg:overflow-hidden panes-locked'}`
   }, /*#__PURE__*/React.createElement("header", {
     className: "mb-4 md:mb-6 lg:shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 px-2 md:px-0"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", {
@@ -3669,7 +3676,7 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-slate-700 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.73"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.74"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-slate-500"
@@ -3708,8 +3715,8 @@ const App = () => {
   }, /*#__PURE__*/React.createElement(FileText, {
     size: 16
   }), showReport ? tr('隱藏操作報告', 'Hide report') : tr('操作報告與結論', 'Usage report')))), showDefinitions && /*#__PURE__*/React.createElement("div", {
-    className: "mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0"
-  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0 relative"
+  }, /*#__PURE__*/React.createElement("button", { onClick: () => setShowDefinitions(false), title: tr('關閉', 'Close'), className: "absolute top-2 right-4 md:right-2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-sm font-bold shadow-sm" }, "\u2715"), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4"
   }, strategiesDef.map(s => /*#__PURE__*/React.createElement("div", {
     key: s.id,
@@ -3793,20 +3800,20 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("div", {
     className: "font-bold text-slate-600 mb-1"
   }, tr('參考文獻', 'References')), /*#__PURE__*/React.createElement("div", null, "Bengen, W. (1994). Determining Withdrawal Rates Using Historical Data. Journal of Financial Planning, 7(4)."), /*#__PURE__*/React.createElement("div", null, "Pfau, W. & Kitces, M. (2014). Reducing Retirement Risk with a Rising Equity Glide Path. Journal of Financial Planning, 27(1)."), /*#__PURE__*/React.createElement("div", null, tr("Kitces, M. (2016). The Bond Tent／Retirement Red Zone 系列. kitces.com.", "Kitces, M. (2016). The Bond Tent / Retirement Red Zone series. kitces.com.")), /*#__PURE__*/React.createElement("div", null, "Blanchett, D. (2015). Revisiting the Optimal Distribution Glide Path. Journal of Financial Planning."), /*#__PURE__*/React.createElement("div", null, "Estrada, J. (2016). The Retirement Glidepath: An International Perspective. Journal of Investing.")))), /*#__PURE__*/React.createElement("button", { onClick: () => setShowDefinitions(false), className: "mt-5 w-full py-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-colors" }, tr('關閉此頁 ✕', 'Close ✕'))), showManual && /*#__PURE__*/React.createElement("div", {
-    className: "mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0"
-  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0 relative"
+  }, /*#__PURE__*/React.createElement("button", { onClick: () => setShowManual(false), title: tr('關閉', 'Close'), className: "absolute top-2 right-4 md:right-2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-sm font-bold shadow-sm" }, "\u2715"), /*#__PURE__*/React.createElement("div", {
     className: "bg-white border border-slate-200 rounded-xl p-4 md:p-6 shadow-sm"
   }, /*#__PURE__*/React.createElement(MarkdownLite, {
     md: DOC_MANUAL
   }), /*#__PURE__*/React.createElement("button", { onClick: () => setShowManual(false), className: "mt-5 w-full py-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-colors" }, tr('關閉此頁 ✕', 'Close ✕')))), showReport && /*#__PURE__*/React.createElement("div", {
-    className: "mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0"
-  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0 relative"
+  }, /*#__PURE__*/React.createElement("button", { onClick: () => setShowReport(false), title: tr('關閉', 'Close'), className: "absolute top-2 right-4 md:right-2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-sm font-bold shadow-sm" }, "\u2715"), /*#__PURE__*/React.createElement("div", {
     className: "bg-white border border-slate-200 rounded-xl p-4 md:p-6 shadow-sm"
   }, /*#__PURE__*/React.createElement(MarkdownLite, {
     md: DOC_REPORT
   }), /*#__PURE__*/React.createElement("button", { onClick: () => setShowReport(false), className: "mt-5 w-full py-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-colors" }, tr('關閉此頁 ✕', 'Close ✕')))), showTwFloor && /*#__PURE__*/React.createElement("div", {
-    className: "mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0"
-  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0 relative"
+  }, /*#__PURE__*/React.createElement("button", { onClick: () => setShowTwFloor(false), title: tr('關閉', 'Close'), className: "absolute top-2 right-4 md:right-2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-sm font-bold shadow-sm" }, "\u2715"), /*#__PURE__*/React.createElement("div", {
     className: "bg-white border border-slate-200 rounded-xl p-4 md:p-6 shadow-sm"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-sm font-extrabold text-slate-700 mb-3 flex items-center gap-1.5 border-b border-slate-100 pb-2"
