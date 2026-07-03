@@ -1850,6 +1850,18 @@ const App = () => {
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [
     {
+      ver: 'v7.70',
+      changes: [
+        '修正：開啟「新手說明書」或「操作報告與結論」時頁面無法向下捲動。原因是桌機版面鎖（lg:h-screen＋overflow-hidden，供左右欄各自獨立捲動）的解除條件只認得「策略計算原理」與「台灣退休年金」兩個舊面板，漏掉 v7.69 新增的兩個文件面板。已改為四個面板任一開啟即切回一般文件流、整頁可捲，關閉後恢復雙欄獨立捲動。',
+        '版本紀錄整理：v7.62–v7.69 八個版本依主題收合為三個世代（v7.62–v7.64 UI 細修與紀錄整理、v7.65–v7.66 資產配置滑翔路徑、v7.67–v7.69 分享·內嵌文件·校準），內容逐字保留、僅重新分組；程式化驗證攤平後 0 遺漏 0 重複。',
+        '全面回歸檢查：引擎 no-op 不變性（0 數值差異）、12 組滑翔/資產假設極端參數（0 NaN、0 例外）、面板開合的捲動模式雙向切換、分享連結 round-trip、歷史模式與滑翔切換循環、龍捲風（含滑翔變因）、哨兵與結構檢查全數通過，未發現其他錯誤。'
+      ],
+    },
+    {
+      ver: 'v7.67–v7.69',
+      summary: '分享、內嵌文件與校準：新增「分享設定」連結（全部參數打包成 URL、開啟即重現，含載入清洗）；年金輸入引導與合理性軟警示；龍捲風死桿隱藏；header 重排並全面統一石板風格；策略原理頁新增債券帳篷附錄（機制、實測、反方文獻）；大額支出預設值校準（醫療 10 萬/年平坦年均、長照 80–88 歲對齊平均歷程）；「新手使用說明書」與「操作使用報告」內嵌進工具、輕量 Markdown 渲染。',
+      detail: [
+    {
       ver: 'v7.69',
       changes: [
         '「新手使用說明書」與「操作使用報告與退休規劃結論」內嵌進工具：header 新增兩顆按鈕（新手說明書／操作報告與結論），點開即在頁面內閱讀完整文件。以輕量 Markdown 渲染器呈現（標題、表格、引言、清單、粗體斜體、分隔線），內容與對外發佈的 .md 檔完全同步。',
@@ -1874,6 +1886,12 @@ const App = () => {
         '修正：龍捲風圖在「純歷史回測」下隱藏「股票報酬／報酬波動」兩桿、在「歷史抽樣」下隱藏「報酬波動」桿——這些引擎不讀該參數，原本會顯示為永遠零長度的死桿（v7.54 起即存在）。切換市場模式/引擎時龍捲風自動重算以同步桿列表。'
       ],
     },
+      ],
+    },
+    {
+      ver: 'v7.65–v7.66',
+      summary: '資產配置滑翔路徑（glide path／債券帳篷）：股票比例可隨退休年份改變（靜態／上升／下降），先於常態分佈引擎落地（逐年由股債比與可調資產假設重算報酬與波動、同種子），再擴及歷史抽樣與純歷史回測（風險 vs 防禦兩類逐年內插、常數權重與靜態逐位元相同）；龍捲風新增滑翔起始股比變因；並修正 UI 切換滑翔後未重算的依賴清單漏洞。驗證：WR 4% 上升 87.7% ＞ 靜態 86.8% ＞ 下降 85.5%，高提領率反轉為不利。',
+      detail: [
     {
       ver: 'v7.66',
       changes: [
@@ -1888,6 +1906,12 @@ const App = () => {
         '新增資產配置滑翔路徑（glide path／債券帳篷）：退休期間股票比例可隨年份改變。三種形狀——靜態（全程固定，＝原行為）、上升（初期低股逐年升高，即債券帳篷）、下降（初期高股逐年降低）。引擎逐年由股債比重算（報酬,波動），退休早期多持債可壓低序列風險；驗證顯示中低提領率下上升路徑成功率高於靜態、下降低於靜態（WR 4%：上升 87.7% ＞ 靜態 86.8% ＞ 下降 85.5%），而高提領率（WR 5.5%）因早年報酬不足反轉為不利——模型正確捕捉「序列風險 vs 報酬不足」的權衡。另開放「進階：資產假設」可調股/債報酬、波動與相關性。目前於常態分佈（高斯）引擎生效；歷史抽樣／回測的 glide 待後續。哨兵不變（靜態＝逐位元相同）。'
       ],
     },
+      ],
+    },
+    {
+      ver: 'v7.62–v7.64',
+      summary: 'UI 細修與版本紀錄整理：年金金額等六位數輸入框自適應寬度；「資產與提領趨勢」主切換鈕位置固定不再跳動；版本紀錄全面重新歸納為主題世代。',
+      detail: [
     {
       ver: 'v7.64',
       changes: [
@@ -1904,6 +1928,8 @@ const App = () => {
       ver: 'v7.62',
       changes: [
       '修正：年金「月領金額」等輸入框拉到六位數（如 100000 以上）會被裁成五位數。輸入框寬度改為依該欄位最大值的位數自適應（六位數自動加寬），其餘欄位維持原寬。'
+      ],
+    },
       ],
     },
     {
@@ -3608,7 +3634,7 @@ const App = () => {
   const effN = simResults ? simResults.effSimCount : simCount;
   const effIsHist = !!(simResults && simResults.marketMode === 'hist');
   return /*#__PURE__*/React.createElement("div", {
-    className: `max-w-[1400px] mx-auto px-2 md:px-5 lg:px-6 ${showDefinitions || showTwFloor ? 'py-2 md:py-5 lg:py-6 pb-20' : 'py-2 md:py-5 pb-20 lg:py-3 lg:pb-3 lg:h-screen lg:flex lg:flex-col lg:overflow-hidden'}`
+    className: `max-w-[1400px] mx-auto px-2 md:px-5 lg:px-6 ${showDefinitions || showTwFloor || showManual || showReport ? 'py-2 md:py-5 lg:py-6 pb-20' : 'py-2 md:py-5 pb-20 lg:py-3 lg:pb-3 lg:h-screen lg:flex lg:flex-col lg:overflow-hidden'}`
   }, /*#__PURE__*/React.createElement("header", {
     className: "mb-4 md:mb-6 lg:shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 px-2 md:px-0"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", {
@@ -3617,7 +3643,7 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-slate-700 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.69"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.70"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-slate-500"
