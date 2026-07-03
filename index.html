@@ -394,6 +394,7 @@ const {
 // lucide-react 全域（UMD）；若載入失敗則該圖示安全渲染為 null，不會讓整頁白屏
 const _L = window.LucideReact || window.lucideReact || {};
 const _ic = n => _L[n] || (() => null);
+const Share2 = _ic('Share2');
 const Settings = _ic('Settings'),
   Activity = _ic('Activity'),
   ShieldCheck = _ic('ShieldCheck'),
@@ -801,6 +802,12 @@ const HIST_ASSETS = [{
   en: 'Gold',
   color: '#eab308'
 }];
+// ===== 分享設定連結：URL hash 序列化（base64url JSON）與載入清洗 =====
+const cfgEncode = obj => { try { return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); } catch (e) { return ''; } };
+const cfgDecode = s => { try { s = String(s).replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return JSON.parse(decodeURIComponent(escape(atob(s)))); } catch (e) { return null; } };
+const _cfN = (v, lo, hi, def) => { const n = typeof v === 'number' ? v : parseFloat(v); return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def; };
+const _cfS = (v, allowed, def) => allowed.indexOf(v) >= 0 ? v : def;
+const _cfB = (v, def) => typeof v === 'boolean' ? v : def;
 const BOOT_MEAN_BLOCK = 7; // stationary block bootstrap 平均區塊長(年)
 const _histMeanLog = arr => {
   let s = 0;
@@ -820,7 +827,7 @@ const histBlendAB = stockRatio => {
   return out;
 };
 // stationary block bootstrap（Politis–Romano，平均區塊長 L，繞接）+ 對數重新置中（報酬與通膨各自平移到目標，形狀/聯合相關保留）
-const histBootstrapPath = (blend, years, targetCagr, targetInfl, meanBlock) => {
+const histBootstrapPath = (blend, years, targetCagr, targetInfl, meanBlock, wPath) => {
   const n = blend.length,
     p = 1 / meanBlock;
   const shiftR = Math.log(1 + targetCagr) - _histMeanLog(blend.map(b => b.r));
@@ -833,7 +840,8 @@ const histBootstrapPath = (blend, years, targetCagr, targetInfl, meanBlock) => {
       if (nextRandom() < p) idx = Math.floor(nextRandom() * n);else idx = (idx + 1) % n;
     }
     const b = blend[idx];
-    rets.push(Math.exp(Math.log(1 + b.r) + shiftR) - 1);
+    const rRaw = wPath ? wPath[Math.min(t, wPath.length - 1)] * HIST_US.ret.SP[idx] + (1 - wPath[Math.min(t, wPath.length - 1)]) * HIST_US.ret.TBOND[idx] : b.r;
+    rets.push(Math.exp(Math.log(1 + rRaw) + shiftR) - 1);
     infls.push(Math.exp(Math.log(1 + b.infl) + shiftI) - 1);
   }
   return {
@@ -848,10 +856,16 @@ const histStartYear = weights => {
   for (const k in weights) if (weights[k] > 0) sy = Math.max(sy, HIST_US.start && HIST_US.start[k] || 1928);
   return sy;
 };
-const histOverlappingWindows = (weights, years) => {
+const HIST_RISK_KEYS = { SP: 1, SMALL: 1, EAFE: 1, RE: 1, GOLD: 1 }; // 風險資產；防禦＝TBOND/BAA/TBILL
+const histOverlappingWindows = (weights, years, eqFracPath) => {
   const _tot = Object.values(weights).reduce((s, v) => s + (v || 0), 0) || 1;
   const w = {};
   for (const k in weights) if (weights[k] > 0) w[k] = weights[k] / _tot; // 正規化為比例
+  // glide（歷史）：風險/防禦兩類間依 eqFracPath[t] 內插，類內比例維持；任一類為 0 → 無法內插，維持定權重
+  let E0 = 0;
+  for (const a in w) if (HIST_RISK_KEYS[a]) E0 += w[a];
+  const D0 = 1 - E0;
+  const glideOK = !!eqFracPath && E0 > 1e-9 && D0 > 1e-9;
   const startYr = histStartYear(weights);
   const lastStart = 2025 - years + 1;
   const wins = [];
@@ -863,7 +877,12 @@ const histOverlappingWindows = (weights, years) => {
     for (let t = 0; t < years; t++) {
       const k = k0 + t;
       let r = 0;
-      for (const a in w) r += w[a] * HIST_US.ret[a][k];
+      if (glideOK) {
+        const e = eqFracPath[Math.min(t, eqFracPath.length - 1)];
+        for (const a in w) r += (HIST_RISK_KEYS[a] ? w[a] * e / E0 : w[a] * (1 - e) / D0) * HIST_US.ret[a][k];
+      } else {
+        for (const a in w) r += w[a] * HIST_US.ret[a][k];
+      }
       rets.push(r);
       infls.push(HIST_US.infl[k]);
     }
@@ -879,12 +898,12 @@ const histOverlappingWindows = (weights, years) => {
 const histWindowCount = (weights, years) => {
   return Math.max(0, 2025 - years + 1 - histStartYear(weights) + 1);
 };
-const getAssetAllocationParams = stockRatio => {
-  const stockReturn = 10.0;
-  const stockVol = 18.0;
-  const bondReturn = 4.0;
-  const bondVol = 5.0;
-  const correlation = 0.1;
+const getAssetAllocationParams = (stockRatio, a) => {
+  const stockReturn = a ? a.sr : 10.0;
+  const stockVol = a ? a.sv : 18.0;
+  const bondReturn = a ? a.br : 4.0;
+  const bondVol = a ? a.bv : 5.0;
+  const correlation = a ? a.corr : 0.1;
   const wS = stockRatio / 100;
   const wB = 1 - wS;
   const expectedReturn = wS * stockReturn + wB * bondReturn;
@@ -1318,6 +1337,22 @@ const PensionSourceCard = ({ s, onChange, tr }) => {
     className: `px-2 py-0.5 ${active ? 'bg-emerald-500 text-white' : 'bg-white text-emerald-700'}`
   }, txt);
   const div = (cls, ...kids) => /*#__PURE__*/React.createElement("div", { className: cls }, ...kids);
+  // 合理性檢查（軟警示，非阻斷）：金額超出制度常見上限、請領年齡不合法規、期限設定矛盾
+  const _warns = [];
+  if (s.enabled) {
+    const _mo = s.mode === 'annual' ? s.amount / 12 : (s.mode === 'monthly' ? s.amount : 0);
+    if (s.key === 'laborIns') {
+      if (_mo > 34000) _warns.push(tr('金額超過勞保老年年金常見上限（約 3.3 萬/月＝最高投保薪資 45,800×40 年×1.55%；展延最多再 +20%）。請至勞保局 e 化服務試算確認。', 'Above the practical Labor Insurance ceiling (~NT$33k/mo). Please verify at BLI e-services.'));
+      if (s.claimAge < 60) _warns.push(tr('勞保老年年金最早 60 歲可提前請領（每提前 1 年減 4%）。', 'Labor Insurance pension starts at 60 at the earliest (−4%/yr if early).'));
+    }
+    if (s.key === 'natPen' && _mo > 11000) _warns.push(tr('金額超過國保老年年金常見上限（約 1.1 萬/月）。', 'Above the practical National Pension ceiling (~NT$11k/mo).'));
+    if (s.key === 'laborPen') {
+      if (s.claimAge < 60) _warns.push(tr('勞退新制最早 60 歲請領。', 'Labor Pension (new system) starts at 60 at the earliest.'));
+      if (_mo > 80000) _warns.push(tr('月退 8 萬以上相當於專戶餘額約 2,000 萬元以上，請至勞保局 e 化服務確認你的專戶。', 'NT$80k+/mo implies a very large account; please verify your balance.'));
+    }
+    if (!s.lifelong && s.mode !== 'lump' && s.endAge <= s.claimAge) _warns.push(tr('「領到幾歲」需大於請領年齡——目前設定下此來源不會發放任何金額。', 'End age must exceed claim age—this source currently pays nothing.'));
+    if (s.claimAge > 75) _warns.push(tr('請領年齡超過 75 歲，請確認是否為刻意延後。', 'Claim age above 75—please confirm this is intentional.'));
+  }
   return div(`rounded-lg p-2.5 border ${s.enabled ? 'bg-emerald-50/40 border-emerald-200' : 'bg-slate-50 border-slate-200 opacity-80'}`,
     div("flex items-center gap-1.5",
       /*#__PURE__*/React.createElement("input", {
@@ -1382,6 +1417,9 @@ const PensionSourceCard = ({ s, onChange, tr }) => {
           s.growth === 'fixed' && /*#__PURE__*/React.createElement("span", { className: "text-[9px] text-slate-400 shrink-0" }, "%/yr")
         )
       )
+    ),
+    _warns.length > 0 && div("mt-1.5 space-y-1",
+      ..._warns.map((t, i) => /*#__PURE__*/React.createElement("div", { key: i, className: "text-[9px] leading-snug text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-1" }, tr('注意：', 'Note: ') + t))
     )
   );
 };
@@ -1492,7 +1530,7 @@ const TornadoPanel = ({ data, panel, idx, onChange, onRemove, canRemove, strateg
     React.createElement(TornadoChart, { data: data, sid: panel.sid, metric: panel.metric, tr: tr, isMobile: isMobile }));
 };
 
-const TornadoCard = ({ data, busy, onCompute, deltas, setDeltas, enabled, setEnabled, bases, panels, setPanels, strategies, sName, tr }) => {
+const TornadoCard = ({ data, busy, onCompute, deltas, setDeltas, enabled, setEnabled, bases, panels, setPanels, strategies, sName, tr, glideOn, hiddenLevers }) => {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 640);
   useEffect(function(){
     const h = function(){ setIsMobile(window.innerWidth < 640); };
@@ -1515,10 +1553,10 @@ const TornadoCard = ({ data, busy, onCompute, deltas, setDeltas, enabled, setEna
     { k: 'retireAge', label: tr('退休年齡', 'Age'), step: 5, unit: tr('歲', 'y/o') },
     { k: 'inflation', label: tr('通膨', 'Infl'), step: 0.25, unit: '%' },
     { k: 'capPct', label: tr('資本', 'Cap'), step: 10, unit: '%' }
-  ];
+  ].concat(glideOn ? [{ k: 'glideStart', label: tr('滑翔起始股比', 'Glide start'), step: 5, unit: '%' }] : []).filter(d => !(hiddenLevers && hiddenLevers[d.k]));
   const bv = bases || {};
   const ubase = function(n, unit){ if (n == null) return ''; const s = (typeof n === 'number' && Math.abs(n) >= 1000) ? Math.round(n).toLocaleString() : String(+n); return s + unit; };
-  const baseStr = { cagr: ubase(bv.cagr, '%'), vol: ubase(bv.vol, '%'), wr: ubase(bv.wr, '%'), years: ubase(bv.years, tr('年', 'y')), retireAge: ubase(bv.retireAge, tr('歲', 'y/o')), inflation: ubase(bv.inflation, '%'), capPct: ubase(bv.capital, tr('萬', '0k')) };
+  const baseStr = { cagr: ubase(bv.cagr, '%'), vol: ubase(bv.vol, '%'), wr: ubase(bv.wr, '%'), years: ubase(bv.years, tr('年', 'y')), retireAge: ubase(bv.retireAge, tr('歲', 'y/o')), inflation: ubase(bv.inflation, '%'), capPct: ubase(bv.capital, tr('萬', '0k')), glideStart: ubase(bv.glideStart, '%') };
   return React.createElement('div', { className: "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden" },
     React.createElement('div', { className: "bg-slate-50 px-4 md:px-5 py-3 md:py-4 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2" },
       React.createElement('h3', { className: "font-extrabold text-slate-800 text-sm md:text-base" }, tr('敏感度龍捲風圖', 'Sensitivity tornado')),
@@ -1591,6 +1629,15 @@ const App = () => {
 
   // 預設為 80% 股債比
   const [stockRatio, setStockRatio] = useState(60); // 退休時股票比例（預設 60%）
+  // glide path（股債滑翔路徑）：static=全程固定；rising=退休初期低股、逐年升高（債券帳篷，降序列風險）；declining=傳統「年紀當債券%」
+  const [glideMode, setGlideMode] = useState('static');
+  const [glideStart, setGlideStart] = useState(40); // 起始股票比例 %
+  const [glideEnd, setGlideEnd] = useState(70);     // 終點股票比例 %
+  const [glideYears, setGlideYears] = useState(10); // 過渡年數（線性內插後持平）
+  // 資產假設（進階）：股/債的報酬、波動與相關性 → 供 stockRatio→(報酬,波動) 換算與 glide 逐年重算
+  const [assetAssump, setAssetAssump] = useState({ sr: 10, sv: 18, br: 4, bv: 5, corr: 0.1 });
+  const [showAssetAdv, setShowAssetAdv] = useState(false);
+  const [cfgShared, setCfgShared] = useState(false); // 分享鈕「已複製」暫態
 
   const [cagr, setCagr] = useState(7.6);
   const [volatility, setVolatility] = useState(11.2);
@@ -1612,13 +1659,60 @@ const App = () => {
   ]);
   const twLaborPenLump = 4000000; // 勞退一次領（比較卡固定假設）：約對應月退18,000，請領年注入投組
   const updateSource = (key, patch) => setTwSources(srcs => srcs.map(s => s.key === key ? { ...s, ...patch } : s)); // 國保老年年金 月領（65起, 多數勞工為0）
+  // ===== 分享設定連結：收集/還原 =====
+  const buildShareCfg = () => ({ v: 1,
+    cap: initialCapital, wr: initialWithdrawalRate, sr: stockRatio, gm: glideMode, gs: glideStart, ge: glideEnd, gy: glideYears, aa: assetAssump,
+    cg: cagr, vo: volatility, inf: inflation, yr: years, ra: retireAge, gd: gender, lg: lang,
+    mm: marketMode, re: riskEngine, hw: histWeights, st: stressMode, sm: useSmile, sd: smileDepth, sf: spendFloorPct,
+    vc: vanCeiling, vf: vanFloor, g1: gkCapPreserveThresh, g2: gkCapPreserveCut, g3: gkProsperityThresh, g4: gkProsperityHike, yw: yaleWeight,
+    tw: useTwFloor, ts: twSources.map(s => ({ k: s.key, e: s.enabled, m: s.mode, a: s.amount, c: s.claimAge, l: s.lifelong, x: s.endAge, g: s.growth, r: s.growthRate })),
+    tm: twTargetMode, mt: monthlyTarget, dr: twDiscountRate,
+    be: bigExpenses.map(b => ({ k: b.key, e: b.enabled, a: b.annual, s: b.startAge, x: b.endAge })),
+    fz: failOnZero, fs: failOnShortfall, sh: shortfallThreshold, sc: showCompare, se: simSeed, md: selectedModels });
+  const applyShareCfg = c => {
+    if (!c || c.v !== 1) return;
+    setInitialCapital(_cfN(c.cap, 0, 1000000, 2000)); setInitialWithdrawalRate(_cfN(c.wr, 0, 20, 4));
+    setStockRatio(_cfN(c.sr, 0, 100, 60)); setGlideMode(_cfS(c.gm, ['static', 'rising', 'declining'], 'static'));
+    setGlideStart(_cfN(c.gs, 0, 100, 40)); setGlideEnd(_cfN(c.ge, 0, 100, 70)); setGlideYears(_cfN(c.gy, 1, 60, 10));
+    if (c.aa && typeof c.aa === 'object') setAssetAssump({ sr: _cfN(c.aa.sr, -20, 30, 10), sv: _cfN(c.aa.sv, 0, 60, 18), br: _cfN(c.aa.br, -20, 30, 4), bv: _cfN(c.aa.bv, 0, 60, 5), corr: _cfN(c.aa.corr, -1, 1, 0.1) });
+    setCagr(_cfN(c.cg, -10, 30, 7.6)); setVolatility(_cfN(c.vo, 0, 60, 11.2)); setInflation(_cfN(c.inf, -5, 20, 3));
+    setYears(Math.round(_cfN(c.yr, 1, 80, 30))); setRetireAge(Math.round(_cfN(c.ra, 20, 100, 65)));
+    setGender(_cfS(c.gd, ['all', 'male', 'female'], 'all')); if (c.lg) setLang(_cfS(c.lg, ['zh', 'en'], 'zh'));
+    setMarketMode(_cfS(c.mm, ['sim', 'hist'], 'sim')); setRiskEngine(_cfS(c.re, ['gaussian', 'bootstrap'], 'gaussian'));
+    if (c.hw && typeof c.hw === 'object') { const w = {}; HIST_ASSETS.forEach(a => { if (c.hw[a.key] != null) { const v = _cfN(c.hw[a.key], 0, 1, 0); if (v > 0) w[a.key] = v; } }); if (Object.keys(w).length) setHistWeights(w); }
+    setStressMode(_cfS(c.st, ['none', 'crash', 'sequence'], 'none'));
+    setUseSmile(_cfB(c.sm, false)); setSmileDepth(_cfN(c.sd, 0, 1, 0.26)); setSpendFloorPct(_cfN(c.sf, 0, 100, 70));
+    setVanCeiling(_cfN(c.vc, 0, 50, 5)); setVanFloor(_cfN(c.vf, 0, 50, 2.5));
+    setGkCapPreserveThresh(_cfN(c.g1, 0, 100, 20)); setGkCapPreserveCut(_cfN(c.g2, 0, 100, 10));
+    setGkProsperityThresh(_cfN(c.g3, 0, 100, 20)); setGkProsperityHike(_cfN(c.g4, 0, 100, 10)); setYaleWeight(_cfN(c.yw, 0, 100, 80));
+    setUseTwFloor(_cfB(c.tw, false));
+    if (Array.isArray(c.ts)) setTwSources(srcs => srcs.map(s => { const p = c.ts.find(t => t && t.k === s.key); return p ? { ...s, enabled: _cfB(p.e, s.enabled), mode: _cfS(p.m, ['monthly', 'annual', 'lump'], s.mode), amount: _cfN(p.a, 0, 100000000, s.amount), claimAge: Math.round(_cfN(p.c, 40, 100, s.claimAge)), lifelong: _cfB(p.l, s.lifelong), endAge: Math.round(_cfN(p.x, 40, 110, s.endAge)), growth: _cfS(p.g, ['inflation', 'fixed', 'none'], s.growth), growthRate: _cfN(p.r, -5, 20, s.growthRate) } : s; }));
+    setTwTargetMode(_cfB(c.tm, false)); setMonthlyTarget(_cfN(c.mt, 0, 10000000, 50000)); setTwDiscountRate(_cfN(c.dr, -5, 20, 2));
+    if (Array.isArray(c.be)) setBigExpenses(bs => bs.map(b => { const p = c.be.find(t => t && t.k === b.key); return p ? { ...b, enabled: _cfB(p.e, b.enabled), annual: _cfN(p.a, 0, 100000000, b.annual), startAge: Math.round(_cfN(p.s, 40, 110, b.startAge)), endAge: Math.round(_cfN(p.x, 40, 110, b.endAge)) } : b; }));
+    setFailOnZero(_cfB(c.fz, true)); setFailOnShortfall(_cfB(c.fs, true)); setShortfallThreshold(_cfN(c.sh, 0, 100, 50));
+    setShowCompare(_cfB(c.sc, false)); setSimSeed(Math.round(_cfN(c.se, 0, 1000000000, 0)));
+    if (Array.isArray(c.md)) { const ok = c.md.filter(x => ['baseline', 'vanguard', 'guyton', 'endowment'].indexOf(x) >= 0); if (ok.length) setSelectedModels(ok); }
+  };
+  const shareCfgLink = () => {
+    try {
+      const enc = cfgEncode(buildShareCfg());
+      const url = window.location.href.split('#')[0] + '#cfg=' + enc;
+      try { window.history.replaceState(null, '', '#cfg=' + enc); } catch (e) {}
+      const done = () => { setCfgShared(true); setTimeout(() => setCfgShared(false), 2000); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done, () => { window.prompt(tr('複製此連結', 'Copy this link'), url); done(); });
+      else { window.prompt(tr('複製此連結', 'Copy this link'), url); done(); }
+    } catch (e) {}
+  };
+  useEffect(() => { // 開啟含 #cfg= 的連結時還原設定（一次性）
+    try { const mh = (window.location.hash || '').match(/cfg=([A-Za-z0-9\-_]+)/); if (mh) { const c = cfgDecode(mh[1]); if (c) applyShareCfg(c); } } catch (e) {}
+  }, []);
   const [monthlyTarget, setMonthlyTarget] = useState(50000); // 退休金需求試算：每月目標支出
   const [twTargetMode, setTwTargetMode] = useState(false); // 目標支出模式：開啟後支出=月目標×12（與資本脫鉤）、投組支應目標、年金照常灌注；由「套用」啟用
   const [twDiscountRate, setTwDiscountRate] = useState(2);
   const [bigExpenses, setBigExpenses] = useState([
     { key: 'travel', label: '旅遊／樂活', enabled: false, annual: 150000, startAge: 65, endAge: 80, info: '退休前期「活躍期」(go-go years) 的旅遊與娛樂，通常前 10–15 年較高、之後遞減。預設 15 萬/年、65–80 歲。' },
-    { key: 'medical', label: '醫療自費', enabled: false, annual: 80000, startAge: 65, endAge: 100, info: '健保之外的自費：自費醫材、標靶藥、手術差額、牙科、輔具等。台灣 60–69 歲每年自費醫療約 7.5 萬、且隨年齡升至全民 3–4 倍；一生自費醫療常估 400–600 萬。預設 8 萬/年、終身。' },
-    { key: 'ltc', label: '長期照護', enabled: false, annual: 480000, startAge: 80, endAge: 100, info: '長照(看護／護理之家／養生村)。台灣平均長照需求約 7.3 年；外籍看護月約 2.6 萬、護理之家月約 4 萬、高級養生村月約 8 萬(補助前)，整段歷程常估約 400 萬。預設 48 萬/年(月 4 萬)、80 歲起。' },
+    { key: 'medical', label: '醫療自費', enabled: false, annual: 100000, startAge: 65, endAge: 100, info: '健保之外的自費：自費醫材、標靶藥、手術差額、牙科、輔具等。台灣 60–69 歲每年自費約 7.5 萬、且隨年齡升至 3–4 倍；65 歲後合計常估 300–400 萬。本項為「平坦年均」近似：預設 10 萬/年×30 年≈300 萬（早年略高估、晚年略低估，總額對齊文獻）。' },
+    { key: 'ltc', label: '長期照護', enabled: false, annual: 480000, startAge: 80, endAge: 88, info: '長照(看護／護理之家／養生村)。台灣平均長照需求約 7.3 年；外籍看護月約 2.6 萬、護理之家月約 4 萬、高級養生村月約 8 萬(補助前)。預設 48 萬/年(月 4 萬)、80–88 歲＝8 年≈平均歷程、總額約 384 萬(對齊常見「整段約 400 萬」估計)。想壓力測試失智等長尾情境(15–20 年)，把「至幾歲」拉到 95–100。' },
     { key: 'custom', label: '自訂', enabled: false, annual: 0, startAge: 65, endAge: 100, info: '自填大筆支出：換房／裝修、子女、進修、奉養父母、一次性大額等(一次性可把年齡區間設為 1 年)。' }
   ]);
   const updateBigExp = (key, patch) => setBigExpenses(es => es.map(e => e.key === key ? { ...e, ...patch } : e));
@@ -1641,9 +1735,16 @@ const App = () => {
 
   const handleStockRatioChange = newRatio => {
     setStockRatio(newRatio);
-    const params = getAssetAllocationParams(newRatio);
+    const params = getAssetAllocationParams(newRatio, assetAssump);
     setCagr(params.r);
     setVolatility(params.v);
+  };
+  const handleAssetAssump = (key, val) => {
+    const next = { ...assetAssump, [key]: val };
+    setAssetAssump(next);
+    const p = getAssetAllocationParams(stockRatio, next);
+    setCagr(p.r);
+    setVolatility(p.v);
   };
   // Mode B：設定單一資產權重（pct 0–100 → 小數）；0 則移除該資產
   const setHistWeight = (key, pct) => {
@@ -1669,8 +1770,8 @@ const App = () => {
   const [auditChartMode, setAuditChartMode] = useState('netWorth');
   const [tornadoData, setTornadoData] = useState(null);
   const [tornadoBusy, setTornadoBusy] = useState(false);
-  const [tornadoDeltas, setTornadoDeltas] = useState({ cagr: 1, vol: 2, wr: 0.5, years: 5, retireAge: 5, inflation: 0.5, capPct: 10 });
-  const [tornadoEnabled, setTornadoEnabled] = useState({ cagr: true, vol: true, wr: true, years: true, retireAge: true, inflation: true, capPct: true });
+  const [tornadoDeltas, setTornadoDeltas] = useState({ cagr: 1, vol: 2, wr: 0.5, years: 5, retireAge: 5, inflation: 0.5, capPct: 10, glideStart: 10 });
+  const [tornadoEnabled, setTornadoEnabled] = useState({ cagr: true, vol: true, wr: true, years: true, retireAge: true, inflation: true, capPct: true, glideStart: true });
   const [tornadoPanels, setTornadoPanels] = useState([{ key: 0, sid: 'baseline', metric: 'survival' }]);
   const simFnRef = useRef(null);
   const [simResults, setSimResults] = useState(null);
@@ -1680,6 +1781,37 @@ const App = () => {
   const activeStrategies = strategiesDef.filter(s => selectedModels.includes(s.id));
   const [showVersions, setShowVersions] = useState(false);
   const versionHistory = [
+    {
+      ver: 'v7.68',
+      changes: [
+        'Header 按鈕列重排：手機改 2×2 網格（上排「策略計算原理｜台灣退休年金」內容鈕、下排「分享設定｜中/EN」工具鈕），桌機單列靠右依同順序；用 CSS order 實作、DOM 不動。語言切換在手機撐滿格寬。',
+        '策略計算原理頁新增「債券帳篷／股債滑翔路徑」附錄卡：序列風險紅色警戒區、帳篷靠波動與相關性（非平均報酬）生效的機制、本工具實測數字（WR 4% 帳篷 +0.9pp／WR 5.5% 反轉 −1.7pp）、誠實界線（Blanchett 2015 與 Estrada 2016 的反方證據、1970 年代停滯性通膨下帳篷失靈），附五篇參考文獻（Bengen 1994、Pfau & Kitces 2014、Kitces 2016、Blanchett 2015、Estrada 2016）。',
+        '大額支出預設值校準（修正「預設與自身引用文獻不一致」）：醫療自費 8 萬→10 萬/年並改寫說明為「平坦年均」近似（10 萬×30 年≈300 萬，對齊 65 歲後 300–400 萬文獻估計）；長期照護預設區間 80–100 歲→80–88 歲（8 年≈台灣平均長照歷程 7.3 年、總額約 384 萬 ≈ 常見「整段約 400 萬」估計），原設定 20 年×48 萬＝960 萬為文獻估計的 2.4 倍。想測失智等 15–20 年長尾可自行拉長「至幾歲」。兩項預設皆為未啟用狀態，不影響既有結果。',
+        '純歷史回測＋滑翔啟用、但歷史資產組合缺「防禦類（公債/公司債/現金）」或「風險類」任一時，滑翔區顯示琥珀色提示說明 glide 無法內插、在該模式下不生效（原本為靜默無作用）。'
+      ],
+    },
+    {
+      ver: 'v7.67',
+      changes: [
+        '新增「分享設定」連結（header 分享鈕）：把目前全部設定（資本/提領/市場模式/glide/資產假設/四策略參數/台灣年金各來源/大額支出/失敗定義/種子/比較模型等約 40 項）打包成 URL hash（base64url JSON），一鍵複製並同步寫回網址列；開啟含 #cfg= 的連結即完整重現。載入時逐欄位清洗（數值夾範圍、字串白名單、陣列僅接受已知鍵），畸形連結不會弄壞引擎。',
+        '年金輸入引導與合理性檢查：年金區頂部新增「先查實際數字再填」引導（勞保局 e 化服務、台銀公保網、銓敘部）；各來源即時軟警示（非阻斷）——勞保月領超過常見上限（約 3.3 萬）、國保超過約 1.1 萬、勞保/勞退早於 60 歲請領、非終身但「領到幾歲」≤ 請領年齡（此設定不會發放）、請領年齡 > 75 確認提醒。',
+        '修正：龍捲風圖在「純歷史回測」下隱藏「股票報酬／報酬波動」兩桿、在「歷史抽樣」下隱藏「報酬波動」桿——這些引擎不讀該參數，原本會顯示為永遠零長度的死桿（v7.54 起即存在）。切換市場模式/引擎時龍捲風自動重算以同步桿列表。'
+      ],
+    },
+    {
+      ver: 'v7.66',
+      changes: [
+        'glide path 全引擎化：歷史抽樣（bootstrap）與純歷史回測皆支援股債滑翔。bootstrap 以逐年權重混合 SP/公債歷史序列（同區塊抽樣、對數平移錨定維持「靜態混合」校準，glide 的報酬代價誠實保留）；純歷史回測以「風險資產（美股大型/小型/EAFE/不動產/黃金）vs 防禦資產（公債/公司債/現金）」兩類間逐年內插、類內比例不變，任一類權重為 0 時 glide 無作用。驗證：常數權重路徑與靜態逐位元相同（windows 與 bootstrap 各自通過）；1966 世代首年報酬 靜態 −4.8% vs 上升 −2.2%（帳篷緩衝方向正確）。',
+        '龍捲風圖新增「滑翔起始股比」變因（glide 啟用時出現，±10pp）；高斯＋glide 時「股票報酬／報酬波動」桿自動改推資產假設（股票報酬 sr／股票波動 sv）——否則在 glide 模式下這兩桿是死桿（引擎逐年路徑不再讀整體報酬/波動）。',
+        '修正（稽核發現）：模擬重算的依賴清單漏掉 glide 與資產假設參數，導致 v7.65 在 UI 切換滑翔模式後結果不會重算、停留舊值直到動其他參數。已補上 glideMode/glideStart/glideEnd/glideYears/assetAssump。端到端驗證：點「上升」後成功率 86.8% → 87.7% 正確刷新。'
+      ],
+    },
+    {
+      ver: 'v7.65',
+      changes: [
+        '新增資產配置滑翔路徑（glide path／債券帳篷）：退休期間股票比例可隨年份改變。三種形狀——靜態（全程固定，＝原行為）、上升（初期低股逐年升高，即債券帳篷）、下降（初期高股逐年降低）。引擎逐年由股債比重算（報酬,波動），退休早期多持債可壓低序列風險；驗證顯示中低提領率下上升路徑成功率高於靜態、下降低於靜態（WR 4%：上升 87.7% ＞ 靜態 86.8% ＞ 下降 85.5%），而高提領率（WR 5.5%）因早年報酬不足反轉為不利——模型正確捕捉「序列風險 vs 報酬不足」的權衡。另開放「進階：資產假設」可調股/債報酬、波動與相關性。目前於常態分佈（高斯）引擎生效；歷史抽樣／回測的 glide 待後續。哨兵不變（靜態＝逐位元相同）。'
+      ],
+    },
     {
       ver: 'v7.64',
       changes: [
@@ -2410,6 +2542,20 @@ const App = () => {
         const _cap = ov.initialCapital != null ? ov.initialCapital : initialCapital; // 可重現：同 simSeed → 同一組亂數路徑;按「重新模擬」會 simSeed+1 換一組
         const _years = ov.years != null ? ov.years : years;
         const _retireAge = ov.retireAge != null ? ov.retireAge : retireAge;
+        const _glideMode = ov.glideMode != null ? ov.glideMode : glideMode;
+        const _glideStart = ov.glideStart != null ? ov.glideStart : glideStart;
+        const _glideEnd = ov.glideEnd != null ? ov.glideEnd : glideEnd;
+        const _glideYears = ov.glideYears != null ? ov.glideYears : glideYears;
+        const _assetAssump = ov.assetAssump != null ? ov.assetAssump : assetAssump;
+        // glide path：逐年股票權重（static＝不啟用；eqFracPath 供歷史模式逐年混權重）
+        const _glideOn = _glideMode !== 'static';
+        const _eqW = (t) => {
+          if (!_glideOn) return stockRatio;
+          const n = Math.max(1, _glideYears);
+          const frac = t >= n ? 1 : t / n;
+          return _glideStart + (_glideEnd - _glideStart) * frac;
+        };
+        const eqFracPath = _glideOn ? Array.from({ length: _years }, (_, t) => Math.min(1, Math.max(0, _eqW(t) / 100))) : null;
         // 目標支出模式（需開啟台灣地板）：支出目標錨定「月目標×12」、與資本脫鉤（年金照常灌進投組、提領照模型）。關閉時 = 原行為（支出目標=資本×提領率）。
         const targetMode = useTwFloor && twTargetMode;
         const initialWithdrawal = targetMode ? monthlyTarget * 12 / 10000 : _cap * (_wr / 100); // baseline 支出目標（萬）
@@ -2424,7 +2570,7 @@ const App = () => {
           targetInfl = _inflation / 100;
         const useBootstrap = marketMode === 'sim' && riskEngine === 'bootstrap';
         const blendForBoot = useBootstrap ? histBlendAB(stockRatio) : null;
-        const histWindows = marketMode === 'hist' ? histOverlappingWindows(histWeights, _years) : null;
+        const histWindows = marketMode === 'hist' ? histOverlappingWindows(histWeights, _years, eqFracPath) : null;
         const M = histWindows ? Math.max(1, histWindows.length) : simCount; // 有效路徑數（歷史回測=可用世代數）
         // 深度稽核要擷取哪一條路徑：歷史模式可逐世代檢視（夾在有效範圍內），其餘維持第 0 條
         // 一次把所有世代的稽核資料都算好（歷史模式 M≤69 條；蒙地卡羅只存第 0 條）→ 切換世代時純即時挑選，不重算、不閃 loading
@@ -2479,6 +2625,12 @@ const App = () => {
           for (let t = 0; t < _years; t++) { const age = _retireAge + t; if (age >= be.startAge && age < be.endAge) bigExpReal[t] += be.annual / 10000; } // 元→萬(對齊引擎單位)
         }
         const auditAll = [];
+        // glide path：逐年 (報酬, 波動)；static 時＝(_cagr,_vol) 逐年常數，與原行為逐位元相同（哨兵安全）
+        const muPath = [], volPath = [];
+        for (let _t = 0; _t < _years; _t++) {
+          if (_glideOn) { const _p = getAssetAllocationParams(_eqW(_t), _assetAssump); muPath.push(_p.r); volPath.push(_p.v); }
+          else { muPath.push(_cagr); volPath.push(_vol); }
+        }
         const universePerformances = [];
         for (let i = 0; i < M; i++) {
           const marketReturns = [];
@@ -2494,7 +2646,7 @@ const App = () => {
             pathInflRates = histWindows[i].infls;
           } else if (useBootstrap) {
             // Mode A：歷史抽樣（stationary block）+ 對數重置到你的目標報酬/通膨
-            const bp = histBootstrapPath(blendForBoot, _years, targetCagr, targetInfl, BOOT_MEAN_BLOCK);
+            const bp = histBootstrapPath(blendForBoot, _years, targetCagr, targetInfl, BOOT_MEAN_BLOCK, eqFracPath);
             pathRets = bp.rets;
             pathInflRates = bp.infls;
           } else {
@@ -2502,7 +2654,7 @@ const App = () => {
             const rawReturns = [];
             for (let t = 0; t < _years; t++) {
               const Z = randn_bm();
-              let r = _cagr / 100 + _vol / 100 * Z;
+              let r = muPath[t] / 100 + volPath[t] / 100 * Z;
               if (stressMode === 'crash' && t < 3) {
                 r = -0.15;
               } // 崩盤情境：前三年釘 -15%
@@ -2890,7 +3042,7 @@ const App = () => {
       setIsSimulating(false);
     }, 50);
     return () => clearTimeout(timer);
-  }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode, usePlan, spendFloorPct, useSmile, retireAge, smileDepth, marketMode, riskEngine, histWeights, gender, useTwFloor, JSON.stringify(twSources), twLaborPenLump, JSON.stringify(bigExpenses), twTargetMode, monthlyTarget, twDiscountRate, failOnZero, failOnShortfall, shortfallThreshold, showCompare]);
+  }, [initialCapital, initialWithdrawalRate, cagr, volatility, inflation, years, simCount, vanCeiling, vanFloor, gkCapPreserveThresh, gkCapPreserveCut, gkProsperityThresh, gkProsperityHike, yaleWeight, simSeed, stressMode, usePlan, spendFloorPct, useSmile, retireAge, smileDepth, marketMode, riskEngine, histWeights, gender, useTwFloor, JSON.stringify(twSources), twLaborPenLump, JSON.stringify(bigExpenses), twTargetMode, monthlyTarget, twDiscountRate, failOnZero, failOnShortfall, shortfallThreshold, showCompare, glideMode, glideStart, glideEnd, glideYears, JSON.stringify(assetAssump)]);
 
   // 軌跡圖資料：依目前世代/檢視模式即時挑選並映射；用 useMemo 讓引用穩定（只有真的換世代/模式/重算才產生新陣列 → 才觸發 AuditChart 的補間，避免其他互動誤觸）
   const computeTornado = () => {
@@ -2910,16 +3062,18 @@ const App = () => {
         };
         const base = metricsOf(fn());
         const yU = tr('年', 'y'), aU = tr('歲', 'y/o');
+        const gGauss = glideMode !== 'static' && marketMode === 'sim' && riskEngine !== 'bootstrap'; // 高斯+glide：報酬/波動桿改推資產假設（否則為死桿）
         const defs = [
-          { k: 'cagr', label: tr('股票報酬', 'Equity return'), delta: D.cagr, dunit: '%', ov: v => ({ cagr: cagr + v }) },
-          { k: 'vol', label: tr('報酬波動', 'Volatility'), delta: D.vol, dunit: '%', ov: v => ({ volatility: volatility + v }) },
+          { k: 'cagr', label: tr('股票報酬', 'Equity return'), delta: D.cagr, dunit: '%', ov: v => gGauss ? { assetAssump: { ...assetAssump, sr: assetAssump.sr + v } } : { cagr: cagr + v } },
+          { k: 'vol', label: tr('報酬波動', 'Volatility'), delta: D.vol, dunit: '%', ov: v => gGauss ? { assetAssump: { ...assetAssump, sv: assetAssump.sv + v } } : { volatility: volatility + v } },
           { k: 'wr', label: tr('提領率', 'Withdrawal rate'), delta: D.wr, dunit: '%', ov: v => ({ initialWithdrawalRate: initialWithdrawalRate + v }) },
           { k: 'years', label: tr('模擬年限', 'Years'), delta: D.years, dunit: yU, ov: v => ({ years: Math.max(1, Math.round(years + v)) }) },
           { k: 'retireAge', label: tr('退休年齡', 'Retire age'), delta: D.retireAge, dunit: aU, ov: v => ({ retireAge: Math.round(retireAge + v) }) },
           { k: 'inflation', label: tr('通膨', 'Inflation'), delta: D.inflation, dunit: '%', ov: v => ({ inflation: inflation + v }) },
           { k: 'capPct', label: tr('初始資本', 'Capital'), delta: D.capPct, dunit: '%', ov: v => ({ initialCapital: initialCapital * (1 + v / 100) }) }
-        ];
-        const rows = defs.filter(d => en[d.k]).map(d => ({
+        ].concat(glideMode !== 'static' ? [{ k: 'glideStart', label: tr('滑翔起始股比', 'Glide start eq%'), delta: D.glideStart, dunit: '%', ov: v => ({ glideStart: Math.min(100, Math.max(0, glideStart + v)) }) }] : []);
+        const _dead = marketMode === 'hist' ? { cagr: 1, vol: 1 } : (marketMode === 'sim' && riskEngine === 'bootstrap' ? { vol: 1 } : {}); // 純歷史不讀報酬/波動；bootstrap 不讀波動 → 死桿隱藏
+        const rows = defs.filter(d => en[d.k] && !_dead[d.k]).map(d => ({
           label: d.label, delta: d.delta, dunit: d.dunit,
           lo: metricsOf(fn(undefined, d.ov(-d.delta))),
           hi: metricsOf(fn(undefined, d.ov(d.delta)))
@@ -2933,7 +3087,7 @@ const App = () => {
     if (!tornadoData) return;
     const id = setTimeout(() => { computeTornado(); }, 300);
     return () => clearTimeout(id);
-  }, [tornadoDeltas, tornadoEnabled]);
+  }, [tornadoDeltas, tornadoEnabled, glideMode, marketMode, riskEngine]);
 
   const auditChartTarget = useMemo(() => {
     if (!simResults || !simResults.auditAll) return [];
@@ -3387,26 +3541,32 @@ const App = () => {
     className: "w-6 h-6 md:w-8 md:h-8 text-slate-700 shrink-0"
   }), /*#__PURE__*/React.createElement("span", null, tr('退休動態提領模擬器', 'Retirement Drawdown Simulator'), " ", /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] md:text-sm font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1 md:ml-2 align-middle"
-  }, "v7.64"))), /*#__PURE__*/React.createElement("p", {
+  }, "v7.68"))), /*#__PURE__*/React.createElement("p", {
     className: "text-slate-500 mt-2 font-medium text-[11px] md:text-sm leading-relaxed break-keep"
   }, tr('結合蒙地卡羅分佈預測與「單一隨機路徑稽核」的壓力測試平台。', 'A stress-testing platform combining Monte Carlo distribution forecasts with single-path "deep audit" analysis.'), /*#__PURE__*/React.createElement("span", {
     className: "md:hidden text-slate-500"
   }, tr('（建議橫向瀏覽）', ' (landscape recommended)')))), /*#__PURE__*/React.createElement("div", {
-    className: "flex flex-wrap items-center justify-end gap-2 shrink-0"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex rounded-lg overflow-hidden border border-slate-300"
+    className: "grid grid-cols-2 sm:flex sm:flex-wrap items-stretch sm:items-center sm:justify-end gap-2 shrink-0 w-full md:w-auto"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: shareCfgLink,
+    title: tr('把目前所有設定打包成連結，貼給朋友開啟即重現', 'Bundle all current settings into a shareable link'),
+    className: `order-3 flex items-center justify-center gap-2 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold transition-colors shadow-sm shrink-0 ${cfgShared ? 'bg-emerald-500 text-white' : 'bg-slate-50 text-slate-800 hover:bg-slate-100'}`
+  }, /*#__PURE__*/React.createElement(Share2, {
+    size: 16
+  }), cfgShared ? tr('已複製連結', 'Link copied') : tr('分享設定', 'Share setup')), /*#__PURE__*/React.createElement("div", {
+    className: "order-4 flex rounded-lg overflow-hidden border border-slate-300"
   }, [['zh', '中'], ['en', 'EN']].map(([v, lbl]) => /*#__PURE__*/React.createElement("button", {
     key: v,
     onClick: () => setLang(v),
-    className: `px-3 py-2 md:py-2.5 text-xs md:text-sm font-bold transition-colors ${lang === v ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`
+    className: `flex-1 sm:flex-none px-3 py-2 md:py-2.5 text-xs md:text-sm font-bold transition-colors ${lang === v ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`
   }, lbl))), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowDefinitions(!showDefinitions),
-    className: "flex items-center justify-center gap-2 bg-slate-50 text-slate-800 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-slate-100 transition-colors shadow-sm shrink-0"
+    className: "order-1 flex items-center justify-center gap-2 bg-slate-50 text-slate-800 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-slate-100 transition-colors shadow-sm shrink-0"
   }, /*#__PURE__*/React.createElement(BookOpen, {
     size: 16
   }), showDefinitions ? tr('隱藏計算原理', 'Hide formulas') : tr('展開策略計算原理', 'Show strategy formulas')), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowTwFloor(!showTwFloor),
-    className: "flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-emerald-100 transition-colors shadow-sm shrink-0"
+    className: "order-2 flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 md:px-5 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-emerald-100 transition-colors shadow-sm shrink-0"
   }, /*#__PURE__*/React.createElement(Layers, {
     size: 16
   }), showTwFloor ? tr('隱藏退休年金說明', 'Hide pensions') : tr('台灣退休年金', 'TW pensions')))), showDefinitions && /*#__PURE__*/React.createElement("div", {
@@ -3484,7 +3644,17 @@ const App = () => {
     className: "text-[10px] text-slate-500 space-y-1.5 leading-relaxed list-disc pl-4"
   }, /*#__PURE__*/React.createElement("li", null, "Bengen, W. P. (1994). Determining Withdrawal Rates Using Historical Data. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), ". ", tr('— 4% 法則原始出處', '— original 4% rule source')), /*#__PURE__*/React.createElement("li", null, "Cooley, P. L., Hubbard, C. M., & Walz, D. T. (1998). Retirement Savings: Choosing a Sustainable Withdrawal Rate (Trinity Study). ", /*#__PURE__*/React.createElement("i", null, "AAII Journal"), "."), /*#__PURE__*/React.createElement("li", null, "Guyton, J. T. (2004). Decision Rules and Portfolio Management for Retirees. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), "."), /*#__PURE__*/React.createElement("li", null, "Guyton, J. T., & Klinger, W. J. (2006). Decision Rules and Maximum Initial Withdrawal Rates. ", /*#__PURE__*/React.createElement("i", null, "Journal of Financial Planning"), ". ", tr('— 保本／繁榮護欄、修正提領法則', '— preserve/prosperity guardrails, modified rule')), /*#__PURE__*/React.createElement("li", null, "Jaconetti, C. M., et al. (2020). From Assets to Income: A Goal-Based Approach to Retirement Spending. ", /*#__PURE__*/React.createElement("i", null, "Vanguard"), ". ", tr('— 動態提領上下限', '— dynamic withdrawal floor/ceiling')), /*#__PURE__*/React.createElement("li", null, "Costa, P., Pakula, D., & Clarke, A. S. (2021). Fuel for the F.I.R.E.: Updating the 4% rule for early retirees. ", /*#__PURE__*/React.createElement("i", null, "Vanguard Research"), "."), /*#__PURE__*/React.createElement("li", null, "Tobin, J. (1974). What Is Permanent Endowment Income? ", /*#__PURE__*/React.createElement("i", null, "American Economic Review"), "\uFF1BSwensen, D. F. (2009). ", /*#__PURE__*/React.createElement("i", null, "Pioneering Portfolio Management"), ". ", tr('— 耶魯/Tobin 80/20 平滑支出規則', '— Yale/Tobin 80/20 smoothing rule'))), /*#__PURE__*/React.createElement("p", {
     className: "text-[9px] text-slate-400 mt-2 leading-relaxed"
-  }, tr('本模擬器之數值為示意性蒙地卡羅結果，非投資建議；實際規劃請納入稅負、健保、社會保險等本模型未涵蓋之因素。', 'These figures are illustrative Monte Carlo results, not investment advice; real planning should also include taxes, health insurance, social insurance and other factors this model omits.')))), showTwFloor && /*#__PURE__*/React.createElement("div", {
+  }, tr('本模擬器之數值為示意性蒙地卡羅結果，非投資建議；實際規劃請納入稅負、健保、社會保險等本模型未涵蓋之因素。', 'These figures are illustrative Monte Carlo results, not investment advice; real planning should also include taxes, health insurance, social insurance and other factors this model omits.'))), /*#__PURE__*/React.createElement("div", {
+    className: "bg-white border border-slate-200 rounded-xl p-4 shadow-sm mt-3 md:mt-4"
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "font-extrabold text-slate-800 text-sm md:text-base mb-2"
+  }, tr('附錄：債券帳篷／股債滑翔路徑——原理與文獻', 'Appendix: Bond Tent / Equity Glide Path — Rationale & References')), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-slate-600 leading-relaxed space-y-2"
+  }, /*#__PURE__*/React.createElement("p", null, tr('問題：退休前後約 ±5–10 年是「序列風險紅色警戒區」——此時投組規模最大、又剛開始提領，同樣的大跌落在這個窗口造成的傷害不可逆：本金被「跌價＋提領」兩頭夾殺，市場回升時可複利的基數已永久縮水。', 'The ~5–10 years around retirement form the "retirement red zone": the portfolio is at its largest and withdrawals begin, so a crash in this window does irreversible damage.')), /*#__PURE__*/React.createElement("p", null, tr('機制：帳篷之所以有效，幾乎與「平均報酬」無關，關鍵在波動與相關性。退休初期多持債做兩件事——(1) 把「最貴的早期變異」壓低；(2) 因股債低相關，投組波動下降的幅度大於期望報酬下降的幅度（分散紅利）。等紅色警戒區過去（投組已成長、剩餘年數縮短），再把股票比例升回去換取長期成長。一個只把平均報酬調低的天真模型會誤判帳篷一律更差；本工具逐年以雙資產公式（含相關性）重算報酬與波動，並讓所有形狀共用同一組市場運氣（同種子），差異全部來自配置本身。', 'The tent works through volatility and correlation, not mean return: holding more bonds early suppresses the most expensive early variance, and low stock-bond correlation means portfolio volatility falls more than expected return (diversification dividend). This tool recomputes per-year (return, vol) via a two-asset formula with correlation, under identical market luck across shapes.')), /*#__PURE__*/React.createElement("p", null, tr('本工具實測（蒙地卡羅、傳統 4% 法則）：提領率 4% 時「上升 40→70%」成功率 87.7%＞靜態 60% 的 86.8%＞「下降 70→40%」的 85.5%；但提領率 5.5% 時帳篷反轉為 −1.7 個百分點——因為此時缺的是報酬成長、不是穩定，早年持債會讓投組餓死。結論：帳篷是「已經大致夠安全的計畫」的精修工具，不是高提領率的救命索。', 'Our tests: at 4% WR, rising 40→70% beats static (87.7% vs 86.8%) and declining is worst (85.5%); at 5.5% WR the tent flips to −1.7pp. It refines an already-viable plan; it does not rescue an over-aggressive withdrawal rate.')), /*#__PURE__*/React.createElement("p", null, tr('誠實界線：文獻並非一面倒。Blanchett（2015）與 Estrada（2016）在不同市場與設定下發現各形狀差異很小、甚至方向相反；而 1970 年代停滯性通膨中股債齊跌，帳篷在該歷史段的保護力明顯打折（可切「純歷史回測」自行驗證）。常態分佈引擎假設股債低相關，對債券偏樂觀——歷史模式才是停滯性通膨的正確壓力測試。', 'Honest caveat: the literature is not unanimous—Blanchett (2015) and Estrada (2016) find small or even reversed differences in other settings; and in 1970s stagflation bonds fell alongside stocks, so the tent protected far less (verify in historical mode). The Gaussian engine is optimistic on bonds.')), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-slate-500 leading-relaxed border-t border-slate-100 pt-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-bold text-slate-600 mb-1"
+  }, tr('參考文獻', 'References')), /*#__PURE__*/React.createElement("div", null, "Bengen, W. (1994). Determining Withdrawal Rates Using Historical Data. Journal of Financial Planning, 7(4)."), /*#__PURE__*/React.createElement("div", null, "Pfau, W. & Kitces, M. (2014). Reducing Retirement Risk with a Rising Equity Glide Path. Journal of Financial Planning, 27(1)."), /*#__PURE__*/React.createElement("div", null, tr("Kitces, M. (2016). The Bond Tent／Retirement Red Zone 系列. kitces.com.", "Kitces, M. (2016). The Bond Tent / Retirement Red Zone series. kitces.com.")), /*#__PURE__*/React.createElement("div", null, "Blanchett, D. (2015). Revisiting the Optimal Distribution Glide Path. Journal of Financial Planning, 28(2)."), /*#__PURE__*/React.createElement("div", null, "Estrada, J. (2016). The Retirement Glidepath: An International Perspective. Journal of Investing, 25(2)."))))), showTwFloor && /*#__PURE__*/React.createElement("div", {
     className: "mb-6 animate-in fade-in slide-in-from-top-4 duration-300 px-2 md:px-0"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-white border border-slate-200 rounded-xl p-4 md:p-6 shadow-sm"
@@ -3798,7 +3968,121 @@ const App = () => {
     info: tr('這是「退休後／提領期間」的股票比例，不是累積期。常態分佈下自動連動報酬與波動；歷史抽樣下決定股/債混合的「形狀」（報酬仍重置到你的設定）。', 'Equity % during retirement/withdrawal, not accumulation. Under Gaussian it auto-links return and volatility; under historical sampling it sets the stock/bond blend shape (level still re-centered to your setting).')
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex justify-between px-2 mt-1 text-[10px] text-slate-400 font-medium"
-  }, /*#__PURE__*/React.createElement("span", null, tr('保守（多債）', 'Conservative (bonds)')), /*#__PURE__*/React.createElement("span", null, tr('積極（多股）', 'Aggressive (equity)')))), marketMode === 'hist' && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, tr('保守（多債）', 'Conservative (bonds)')), /*#__PURE__*/React.createElement("span", null, tr('積極（多股）', 'Aggressive (equity)')))), /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1.5 mb-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-sm font-medium text-slate-700"
+  }, tr('股債滑翔路徑 (glide path)', 'Glide path')), /*#__PURE__*/React.createElement(InfoPopover, {
+    w: "w-64"
+  }, tr('退休期間股票比例是否隨年份改變。上升（債券帳篷）：初期低股、逐年升高，壓低退休早期波動以降序列風險——中低提領率有效；高提領率因早年報酬不足可能反而不利。下降：初期高股逐年降低。三種引擎皆生效：常態分佈逐年由股債比換算（報酬,波動）；歷史抽樣以逐年權重混合股/債歷史序列；純歷史回測以「風險資產（股票/不動產/黃金）vs 防禦資產（公債/公司債/現金）」兩類間逐年調整、類內比例不變（任一類權重為 0 時 glide 無作用）。誠實提醒：1970 年代停滯性通膨中債券與股票同跌，歷史模式會如實呈現債券帳篷保護力的極限；常態分佈假設股債低相關，對債券偏樂觀。', 'Whether equity % shifts across retirement. Rising (bond tent): start low, ramp up—cuts early volatility against sequence risk. Works in all three engines; in historical modes weights shift between risk assets (stocks/RE/gold) and defensive assets (bonds/cash) each year. Honest note: in 1970s stagflation bonds fell too—historical mode shows the tent\'s limits; Gaussian is optimistic on bonds.'))), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-1"
+  }, [{
+    k: 'static',
+    l: tr('靜態', 'Static')
+  }, {
+    k: 'rising',
+    l: tr('上升（債券帳篷）', 'Rising')
+  }, {
+    k: 'declining',
+    l: tr('下降', 'Declining')
+  }].map(function (o) {
+    return /*#__PURE__*/React.createElement("button", {
+      key: o.k,
+      onClick: function () {
+        if (o.k === 'rising' && !(glideStart < glideEnd)) {
+          setGlideStart(40);
+          setGlideEnd(70);
+        }
+        if (o.k === 'declining' && !(glideStart > glideEnd)) {
+          setGlideStart(70);
+          setGlideEnd(40);
+        }
+        setGlideMode(o.k);
+      },
+      className: "flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors " + (glideMode === o.k ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+    }, o.l);
+  })), marketMode === 'hist' && glideMode !== 'static' && (function () {
+    const _d = (histWeights.TBOND || 0) + (histWeights.BAA || 0) + (histWeights.TBILL || 0);
+    const _tot = Object.values(histWeights).reduce(function (s, v) { return s + (v || 0); }, 0) || 1;
+    return (_d <= 0 || _tot - _d <= 0) ? /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 text-[9px] leading-snug text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-1"
+    }, tr('注意：目前的歷史資產組合缺少「防禦類（公債／公司債／現金）」或「風險類」其中一類，滑翔路徑無法在兩類之間內插，在純歷史回測下不會生效。', 'Note: your historical mix lacks one of the two classes (risk vs defensive), so the glide path cannot interpolate and has no effect in historical mode.')) : null;
+  })(), glideMode !== 'static' && /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 space-y-3"
+  }, /*#__PURE__*/React.createElement(InputSlider, {
+    label: tr('起始股票比例', 'Starting equity %'),
+    value: glideStart,
+    setter: setGlideStart,
+    min: 0,
+    max: 100,
+    step: 5,
+    suffix: "%",
+    color: "emerald"
+  }), /*#__PURE__*/React.createElement(InputSlider, {
+    label: tr('終點股票比例', 'Ending equity %'),
+    value: glideEnd,
+    setter: setGlideEnd,
+    min: 0,
+    max: 100,
+    step: 5,
+    suffix: "%",
+    color: "emerald"
+  }), /*#__PURE__*/React.createElement(InputSlider, {
+    label: tr('過渡年數', 'Transition years'),
+    value: glideYears,
+    setter: setGlideYears,
+    min: 1,
+    max: 30,
+    step: 1,
+    suffix: tr(' 年', ' yr'),
+    color: "emerald"
+  }))), marketMode === 'sim' && riskEngine !== 'bootstrap' && /*#__PURE__*/React.createElement("div", {
+    className: "mb-4"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: function () {
+      setShowAssetAdv(!showAssetAdv);
+    },
+    className: "text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+  }, tr('進階：資產假設', 'Advanced: asset assumptions'), /*#__PURE__*/React.createElement("span", null, showAssetAdv ? '▾' : '▸')), showAssetAdv && /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 grid grid-cols-2 gap-2 p-3 bg-slate-50 rounded-lg"
+  }, [{
+    k: 'sr',
+    l: tr('股票報酬 %', 'Stock ret %'),
+    st: 0.5
+  }, {
+    k: 'sv',
+    l: tr('股票波動 %', 'Stock vol %'),
+    st: 0.5
+  }, {
+    k: 'br',
+    l: tr('債券報酬 %', 'Bond ret %'),
+    st: 0.5
+  }, {
+    k: 'bv',
+    l: tr('債券波動 %', 'Bond vol %'),
+    st: 0.5
+  }, {
+    k: 'corr',
+    l: tr('股債相關性', 'Correlation'),
+    st: 0.05
+  }].map(function (o) {
+    return /*#__PURE__*/React.createElement("label", {
+      key: o.k,
+      className: "flex flex-col text-xs text-slate-600"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "mb-1"
+    }, o.l), /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      value: assetAssump[o.k],
+      step: o.st,
+      onChange: function (e) {
+        handleAssetAssump(o.k, parseFloat(e.target.value) || 0);
+      },
+      className: "px-2 py-1 border border-slate-200 rounded w-full"
+    }));
+  })))), marketMode === 'hist' && /*#__PURE__*/React.createElement("div", {
     className: "mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-2"
@@ -4196,7 +4480,9 @@ const App = () => {
     className: "text-[9px] md:text-[10px] text-slate-500 mt-1"
   }, tr('每年年金現金流先注入投組、提領照所選模型運作；請領前（橋接期）年金＝0、投組扛全額。若含「有期限」年金（如勞退月退只到~85），該筆停發後、終身年金墊高的基準會往下掉一階。', 'The portfolio funds only the gap. Before claiming the floor is 0 (full burden); after claiming, pensions lift the base and the gap jumps up around 85 when labor-pension monthly payments end.')), useTwFloor && /*#__PURE__*/React.createElement("div", {
     className: "space-y-3 mt-3"
-  }, twSources.map(s => /*#__PURE__*/React.createElement(PensionSourceCard, { key: s.key, s: s, onChange: updateSource, tr: tr })), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[9px] leading-snug text-sky-800 bg-sky-50 border border-sky-200 rounded-lg px-2 py-1.5"
+  }, tr('先查實際數字再填：勞保老年年金與國保 → 勞保局 e 化服務「老年給付試算」；勞退專戶 → 勞保局 e 化服務「勞退個人專戶」；公保 → 台灣銀行公保網；退撫 → 銓敘部或服務機關人事。金額請填「你請領年齡當時」的月領金額，不是現在薪資的推估。', 'Look up your actual numbers first: Labor Insurance & National Pension → BLI e-services; Labor Pension account → BLI; civil-service schemes → MOCS / your HR. Enter the monthly amount payable at your claim age.')), twSources.map(s => /*#__PURE__*/React.createElement(PensionSourceCard, { key: s.key, s: s, onChange: updateSource, tr: tr })), /*#__PURE__*/React.createElement("div", {
     className: "bg-slate-50/60 rounded-lg p-3 border border-slate-200 mt-1"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-[11px] font-extrabold text-slate-800 mb-0.5"
@@ -4610,7 +4896,7 @@ const App = () => {
     }, /*#__PURE__*/React.createElement("b", { className: "text-slate-600" }, tr('勞保能不能一次領？', 'Labor insurance lump?')), tr(' 2009 年金化後，新年資只能「月領」；一次請領僅限 2009 施行前已有年資者。能自由選月領／一次領的是「勞退（個人專戶）」，故本比較聚焦勞退。', ' Post-2009 seniority is annuity-only; the free monthly/lump choice applies to the labor pension — what this compares.')), /*#__PURE__*/React.createElement("p", {
       className: "text-[9px] text-slate-500 leading-relaxed"
     }, /*#__PURE__*/React.createElement("b", { className: "text-slate-600" }, tr('讀法：', 'How to read: ')), tr('月領缺口小、失敗較軟（保底較高）；一次領把那筆錢投入投組，期末資產與遺產潛力通常較高、成功率不一定輸（勞退年金化利率僅約 1.1%），但失敗較硬、自負長壽與投資風險。沒有單一正解，看你重視「保證收入＋軟著陸」還是「期望報酬＋控制權」。', 'Monthly: softer failure, guaranteed income. Lump: usually higher ending wealth/bequest with comparable success, but harder failure and you bear longevity/investment risk.')))));
-  })(), /*#__PURE__*/React.createElement(TornadoCard, { data: tornadoData, busy: tornadoBusy, onCompute: computeTornado, deltas: tornadoDeltas, setDeltas: setTornadoDeltas, enabled: tornadoEnabled, setEnabled: setTornadoEnabled, bases: { cagr: cagr, vol: volatility, wr: initialWithdrawalRate, years: years, retireAge: retireAge, inflation: inflation, capital: initialCapital }, panels: tornadoPanels, setPanels: setTornadoPanels, strategies: activeStrategies, sName: sName, tr: tr }), /*#__PURE__*/React.createElement("div", {
+  })(), /*#__PURE__*/React.createElement(TornadoCard, { data: tornadoData, busy: tornadoBusy, onCompute: computeTornado, deltas: tornadoDeltas, setDeltas: setTornadoDeltas, enabled: tornadoEnabled, setEnabled: setTornadoEnabled, bases: { cagr: glideMode !== 'static' && marketMode === 'sim' && riskEngine !== 'bootstrap' ? assetAssump.sr : cagr, vol: glideMode !== 'static' && marketMode === 'sim' && riskEngine !== 'bootstrap' ? assetAssump.sv : volatility, wr: initialWithdrawalRate, years: years, retireAge: retireAge, inflation: inflation, capital: initialCapital, glideStart: glideStart }, glideOn: glideMode !== 'static', hiddenLevers: marketMode === 'hist' ? { cagr: 1, vol: 1 } : (marketMode === 'sim' && riskEngine === 'bootstrap' ? { vol: 1 } : null), panels: tornadoPanels, setPanels: setTornadoPanels, strategies: activeStrategies, sName: sName, tr: tr }), /*#__PURE__*/React.createElement("div", {
     className: "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-slate-50 px-4 md:px-5 py-3 md:py-4 border-b border-slate-200 flex justify-between items-center"
