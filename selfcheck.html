@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>出貨前自我檢查 · 退休動態提領模擬器</title>
+<style>
+  :root {
+    --bg: #f8fafc; --fg: #0f172a; --muted: #64748b; --line: #e2e8f0; --card: #ffffff;
+    --pass: #15803d; --passbg: #f0fdf4; --fail: #b91c1c; --failbg: #fef2f2;
+    --warn: #b45309; --warnbg: #fffbeb; --run: #1d4ed8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 20px 64px; background: var(--bg); color: var(--fg);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 800; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+  .bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    padding: 12px 14px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; margin-bottom: 8px; position: sticky; top: 0; z-index: 5;
+  }
+  button {
+    font: inherit; font-weight: 700; padding: 7px 16px; border-radius: 8px; cursor: pointer;
+    border: 1px solid #334155; background: #1e293b; color: #fff;
+  }
+  button:disabled { opacity: .45; cursor: default; }
+  button.ghost { background: #fff; color: #334155; }
+  .tally { font-size: 13px; font-weight: 700; margin-left: auto; }
+  .tally span { margin-left: 12px; }
+  .t-pass { color: var(--pass); } .t-fail { color: var(--fail); } .t-warn { color: var(--warn); }
+  #progress { font-size: 12px; color: var(--muted); min-height: 18px; margin: 0 0 14px 2px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; overflow: hidden; }
+  section > h2 {
+    font-size: 13px; font-weight: 800; margin: 0; padding: 10px 14px;
+    background: #f1f5f9; border-bottom: 1px solid var(--line);
+  }
+  section > h2 small { font-weight: 600; color: var(--muted); margin-left: 8px; }
+  .case { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; display: flex; gap: 10px; align-items: flex-start; }
+  .case:last-child { border-bottom: 0; }
+  .badge {
+    flex: 0 0 auto; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid; min-width: 62px; text-align: center;
+  }
+  .b-pass { color: var(--pass); background: var(--passbg); border-color: #bbf7d0; }
+  .b-fail { color: var(--fail); background: var(--failbg); border-color: #fecaca; }
+  .b-warn { color: var(--warn); background: var(--warnbg); border-color: #fde68a; }
+  .b-run  { color: var(--run);  background: #eff6ff;      border-color: #bfdbfe; }
+  .body { flex: 1 1 auto; min-width: 0; }
+  .name { font-weight: 700; }
+  .why {
+    font-size: 12px; color: var(--muted); margin-top: 2px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .why b { color: var(--fg); }
+  .note {
+    font-size: 12px; color: var(--muted); background: #f8fafc; border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 14px;
+  }
+  .note code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+  #stage { position: fixed; left: -9999px; top: 0; width: 1280px; height: 900px; }
+  #stage iframe { width: 1280px; height: 900px; border: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>出貨前自我檢查</h1>
+  <div class="sub">對同目錄的 <code>index.html</code> 做靜態掃描與端到端驗算。不修改任何檔案。</div>
+
+  <div class="note">
+    <b>怎麼跑：</b>用 <code>python3 -m http.server</code> 服務這個資料夾，然後開
+    <code>http://127.0.0.1:8000/selfcheck.html</code>。<br>
+    <b>兩件必須注意的事：</b>①<b>分頁要保持在前景</b>——背景分頁會被瀏覽器節流，模擬的計時器會被拖到數十秒，測試會誤判逾時。
+    ②整輪約需 1–2 分鐘，因為每個情境都真的重跑一萬次模擬。<br>
+    <b>這份檢查涵蓋不到的地方：</b>版面外觀、手機寬度、圖表美觀、文案是否通順。那些仍然要人看。
+  </div>
+
+  <div class="bar">
+    <button id="run">開始檢查</button>
+    <button id="copy" class="ghost" disabled>複製結果</button>
+    <div class="tally" id="tally"></div>
+  </div>
+  <div id="progress"></div>
+
+  <section id="sec-static"><h2>A · 靜態掃描 <small>讀 index.html 原始碼，不需渲染</small></h2></section>
+  <section id="sec-boot"><h2>B · 開得起來嗎 <small>真的把頁面掛載起來</small></h2></section>
+  <section id="sec-inv"><h2>C · 情境不變式 <small>每項各自載入一次、跑完整模擬再驗算</small></h2></section>
+</div>
+<div id="stage"></div>
+
+<script>
+/* =========================================================================
+   出貨前自我檢查
+   -------------------------------------------------------------------------
+   為什麼有這支檔案：v7.81 那一輪稽核在一個「已經上線」的版本裡找出 90 項問題，
+   其中 6 項致命。那些致命問題沒有一個是靠讀 code 讀出來的——全都要實際跑數字
+   才會現形（波動拖累讓 7.6% 只跑出 7.0%、大額支出從年金地板憑空蒸發、年金多發
+   五年、NaN 讓破產判定恆為 false 反而顯示「失敗率 0%」）。
+
+   修的過程中又自殘了五次，全部是「語法檢查通過但功能壞掉」：行內 // 註解把同一行
+   後面的 props 整段吃掉、const 宣告在呼叫點之後造成 TDZ、修改腳本中途失敗只寫入
+   一半。所以這份檢查刻意分成三層：
+     A 靜態  —— 專抓那五次自殘的型態，成本近乎零，每次改動都該跑
+     B 開機  —— 白畫面偵測。語法過了不代表 React 掛得起來
+     C 不變式 —— 真的跑模擬，驗「畫面上的數字彼此對得起來」
+
+   C 的重點是「不變式」而不是「魔術數字」。魔術數字（90.8%）只要你刻意調整引擎
+   就會壞掉，然後你會習慣性地把期望值改掉，測試就失去意義。不變式（稽核表逐列
+   收支平衡、需求試算與引擎同口徑）不管參數怎麼變都必須成立。
+   ========================================================================= */
+
+const TARGET = 'index.html';
+
+/* 預設情境的四策略存活率。這是唯一的魔術數字，刻意保留：它能一次抓到任何
+   意外改動引擎的行為。若你是「刻意」改了引擎，請連同這裡一起更新，並在
+   commit 訊息裡寫明為什麼——不要默默改數字。 */
+const SENTINEL_RATES = { '傳統': 90.8, 'Vanguard': 95.5, 'G-K': 96.1, 'Yale': 89.7 };
+
+const $ = s => document.querySelector(s);
+const results = [];
+let srcText = '';
+
+function addCase(sectionId, name) {
+  const el = document.createElement('div');
+  el.className = 'case';
+  el.innerHTML = '<div class="badge b-run">檢查中</div><div class="body"><div class="name"></div><div class="why"></div></div>';
+  el.querySelector('.name').textContent = name;
+  $(sectionId).appendChild(el);
+  return {
+    el,
+    set(status, why) {
+      const b = el.querySelector('.badge');
+      b.className = 'badge ' + (status === 'pass' ? 'b-pass' : status === 'fail' ? 'b-fail' : 'b-warn');
+      b.textContent = status === 'pass' ? '通過' : status === 'fail' ? '失敗' : '待人看';
+      el.querySelector('.why').textContent = why || '';
+      results.push({ name, status, why: why || '' });
+      renderTally();
+    }
+  };
+}
+
+function renderTally() {
+  const p = results.filter(r => r.status === 'pass').length;
+  const f = results.filter(r => r.status === 'fail').length;
+  const w = results.filter(r => r.status === 'warn').length;
+  $('#tally').innerHTML =
+    '<span class="t-pass">通過 ' + p + '</span>' +
+    (f ? '<span class="t-fail">失敗 ' + f + '</span>' : '') +
+    (w ? '<span class="t-warn">待人看 ' + w + '</span>' : '');
+}
+
+const progress = t => { $('#progress').textContent = t; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------- A · 靜態掃描 ---------------------------------------------- */
+
+function scriptBlocks(html) {
+  const out = [];
+  const re = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
+  let m;
+  while ((m = re.exec(html))) out.push(m[1]);
+  return out;
+}
+
+function checkParse() {
+  const c = addCase('#sec-static', 'A1 每個內嵌 <script> 都能解析');
+  const blocks = scriptBlocks(srcText);
+  if (!blocks.length) return c.set('fail', '找不到任何內嵌 script，選擇器可能過期了。');
+  const bad = [];
+  blocks.forEach((b, i) => {
+    try { new Function(b); } catch (e) { bad.push('第 ' + (i + 1) + ' 塊：' + e.message); }
+  });
+  bad.length
+    ? c.set('fail', bad.join('\n'))
+    : c.set('pass', blocks.length + ' 塊全部通過。（注意：解析通過不代表跑得起來，那是 B 的事）');
+}
+
+function checkCommentSwallow() {
+  const c = addCase('#sec-static', 'A2 行內 // 註解沒有把同一行後面的程式碼吃掉');
+  /* 這一輪踩過兩次：
+       setTwTargetMode(...); // 說明 setMonthlyTarget(...); setTwDiscountRate(...);
+       assumpLever: x, // 說明 hiddenLevers: ..., panels: ..., strategies: ...
+     兩次都語法通過、都在執行期才炸。判準：// 之後同一行還出現「識別字 + : 或 (」
+     而且該行以 ; 或 ) 收尾。行首就是註解的、URL 裡的 // 都排除。 */
+  const hits = [];
+  srcText.split('\n').forEach((line, n) => {
+    /* 逐一檢查這一行的每個 //，不能只看第一個：正則字面量（例 .replace(/\//g,'_')）
+       裡的斜線會先被撞到，把後面真正的問題遮掉。 */
+    for (let i = line.indexOf('//'); i >= 0; i = line.indexOf('//', i + 1)) {
+      const prev = line[i - 1];
+      if (i === 0) continue;                              // 行首就是註解
+      if (prev === ':' || prev === '\\' || prev === '/') continue; // http:// 、正則裡的 \/ 、///
+      if (!/\s/.test(prev)) continue;                     // 真正的行尾註解前面一定有空白
+      const before = line.slice(0, i);
+      if (!/\S/.test(before)) continue;                   // 整行只有註解
+      if ((before.match(/"/g) || []).length % 2) continue; // // 落在字串裡
+      if ((before.match(/'/g) || []).length % 2) continue;
+      if ((before.match(/`/g) || []).length % 2) continue;
+      const after = line.slice(i + 2);
+      if (/[;)]\s*$/.test(after) && /[A-Za-z_$][\w$]*\s*[:(]/.test(after)) {
+        hits.push('第 ' + (n + 1) + ' 行：' + line.trim().slice(0, 140));
+      }
+      break;                                              // 這一行從這裡開始都是註解
+    }
+  });
+  hits.length
+    ? c.set('fail', '這些行的 // 後面疑似還有程式碼，會被整段吃掉：\n' + hits.join('\n'))
+    : c.set('pass', '沒有可疑的行內註解。');
+}
+
+function checkVersionStamps() {
+  const c = addCase('#sec-static', 'A3 版本號單一來源');
+  const m = srcText.match(/const APP_VERSION = '([^']+)'/);
+  if (!m) return c.set('fail', "找不到 APP_VERSION，版本單一來源的約定可能被改掉了。");
+  const ver = m[1];
+  const problems = [];
+  const title = (srcText.match(/<title>([^<]*)<\/title>/) || [])[1] || '';
+  if (/v\d+\.\d+/.test(title)) problems.push('靜態 <title> 又寫死了版本號（「' + title.trim() + '」）——這正是 v7.77 修過又復發的那個 bug。');
+  const stamps = srcText.match(/v\d+\.\d{2}/g) || [];
+  const others = [...new Set(stamps.filter(v => v !== ver))];
+  const stale = others.filter(v => {
+    /* 版本紀錄本來就會提到舊版號，只挑「文件戳記」附近的 */
+    const re = new RegExp('(對應版本|Tool version|引擎重新驗證|re-verified[^v]{0,40})\\s*' + v.replace('.', '\\.'));
+    return re.test(srcText);
+  });
+  stale.forEach(v => problems.push('有份內嵌文件的戳記還停在 ' + v + '，APP_VERSION 是 ' + ver + '。'));
+  problems.length ? c.set('fail', problems.join('\n')) : c.set('pass', 'APP_VERSION = ' + ver + '，靜態 title 無版本號，文件戳記一致。');
+}
+
+function checkChangelogTally() {
+  const c = addCase('#sec-static', 'A4 版本紀錄宣稱的計數與實際條目相符');
+  const ver = (srcText.match(/const APP_VERSION = '([^']+)'/) || [])[1];
+  if (!ver) return c.set('warn', '沒有 APP_VERSION，跳過。');
+  const start = srcText.indexOf("ver: '" + ver + "'");
+  if (start < 0) return c.set('warn', '版本紀錄裡找不到 ' + ver + ' 的條目，跳過。');
+  const nextVer = srcText.slice(start + 10).search(/ver: 'v\d+\.\d+'/);
+  const seg = nextVer < 0 ? srcText.slice(start) : srcText.slice(start, start + 10 + nextVer);
+  const count = tag => (seg.match(new RegExp('【' + tag + '】', 'g')) || []).length;
+  const actual = { 致命: count('致命'), 重要: count('重要'), 中: count('中'), 小: count('小'), 已知: count('已知') };
+  const total = actual.致命 + actual.重要 + actual.中 + actual.小;
+  const claim = seg.match(/（(\d+)\s*項[^）]*致命\s*(\d+)／重要\s*(\d+)／中\s*(\d+)／小\s*(\d+)[^）]*?(\d+)\s*項已知/);
+  if (!claim) return c.set('warn', '摘要句的格式對不上，無法比對。實際條目：總 ' + total + '（致命 ' + actual.致命 + '／重要 ' + actual.重要 + '／中 ' + actual.中 + '／小 ' + actual.小 + '），已知 ' + actual.已知 + '。');
+  const said = { total: +claim[1], 致命: +claim[2], 重要: +claim[3], 中: +claim[4], 小: +claim[5], 已知: +claim[6] };
+  const diff = [];
+  if (said.total !== total) diff.push('總數：摘要寫 ' + said.total + '，實際 ' + total);
+  ['致命', '重要', '中', '小', '已知'].forEach(k => {
+    if (said[k] !== actual[k]) diff.push(k + '：摘要寫 ' + said[k] + '，實際 ' + actual[k]);
+  });
+  diff.length
+    ? c.set('fail', '版本紀錄自己對不起來：\n' + diff.join('\n'))
+    : c.set('pass', total + ' 項（致命 ' + actual.致命 + '／重要 ' + actual.重要 + '／中 ' + actual.中 + '／小 ' + actual.小 + '），已知 ' + actual.已知 + '，與摘要一致。');
+}
+
+function checkNoDupConstants() {
+  const c = addCase('#sec-static', 'A5 沒有重新長出來的硬寫常數');
+  const problems = [];
+  /* 年金三種領法的金額上限曾經在三個地方各寫一份，改了一處另外兩處不動 */
+  const caps = srcText.match(/'lump'\s*\?\s*20000000\s*:/g) || [];
+  if (caps.length) problems.push('年金金額上限又出現硬寫的三元式 ' + caps.length + ' 處，應該一律讀 PENSION_AMT_MAX。');
+  /* 「億」刻度被壓成整數，10,500 萬與 14,000 萬都顯示「1億」＝ 40% 低估 */
+  const tick = srcText.match(/\/ 10000\)\.toFixed\(0\) \+ '億'/g) || [];
+  if (tick.length) problems.push('有 ' + tick.length + ' 處「億」刻度用 toFixed(0)，會把 1.05 億與 1.4 億都印成「1億」。');
+  /* 月退↔一次領的換算比例曾經同值兩個名字 */
+  if (/const LUMP_PER_MONTHLY\s*=/.test(srcText)) problems.push('LUMP_PER_MONTHLY 又出現了，它與 PENSION_LUMP_PER_MONTHLY 同值不同名。');
+  problems.length ? c.set('fail', problems.join('\n')) : c.set('pass', '三類曾經復發過的硬寫常數都沒有再出現。');
+}
+
+/* ---------- 載入被測頁面 ---------------------------------------------- */
+
+/* 把設定打包成 index.html 認得的 #cfg=（base64url JSON），這樣每個情境都能
+   一次載入到位，不必逐個欄位模擬打字——那條路已經證實很容易讀到 React 還沒
+   重繪完的舊值。 */
+function encodeCfg(obj) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+const BASE_CFG = { v: 1 };
+
+/* 載入一次頁面並等它把模擬跑完。回傳 { win, doc, errors }。 */
+async function boot(cfg, label, timeoutMs = 90000) {
+  progress('載入情境：' + label + ' …');
+  const stage = $('#stage');
+  stage.innerHTML = '';
+  const iframe = document.createElement('iframe');
+  stage.appendChild(iframe);
+
+  const errors = [];
+  const hash = cfg ? '#cfg=' + encodeCfg(Object.assign({}, BASE_CFG, cfg)) : '';
+  const html = srcText.replace(
+    '<body>',
+    '<body>\n<script>window.__ERRS=[];' +
+    'window.addEventListener("error",function(e){window.__ERRS.push((e.error&&e.error.stack)||e.message)});' +
+    'window.addEventListener("unhandledrejection",function(e){window.__ERRS.push("unhandled: "+e.reason)});' +
+    'try{history.replaceState(null,"","' + hash + '")}catch(_){}' +
+    '<\/script>'
+  );
+
+  const d = iframe.contentDocument;
+  /* 先把 hash 設好再寫入文件：index.html 只在掛載那一刻讀一次 #cfg=。 */
+  try { iframe.contentWindow.location.hash = hash.slice(1); } catch (_) {}
+  d.open(); d.write(html); d.close();
+
+  const win = iframe.contentWindow;
+  const t0 = Date.now();
+  let lastSig = null, stableSince = 0;
+  while (Date.now() - t0 < timeoutMs) {
+    await sleep(350);
+    const doc = iframe.contentDocument;
+    if (!doc || !doc.body) continue;
+    const rates = readRates(doc);
+    if (!rates) continue;
+    const sig = JSON.stringify(rates);
+    if (sig === lastSig) {
+      if (!stableSince) stableSince = Date.now();
+      if (Date.now() - stableSince > 700) {
+        errors.push(...(win.__ERRS || []));
+        progress('');
+        return { win, doc, errors, iframe };
+      }
+    } else { lastSig = sig; stableSince = 0; }
+  }
+  errors.push(...(win.__ERRS || []));
+  progress('');
+  return { win, doc: iframe.contentDocument, errors, iframe, timedOut: true };
+}
+
+/* 讀結算表的四策略存活率。刻意走表格結構而不是 innerText 切片：
+   切片會被上下文的其他百分比污染。 */
+function readRates(doc) {
+  const t = [...doc.querySelectorAll('table')].find(x => /存活率/.test(x.textContent) && /策略/.test(x.textContent));
+  if (!t) return null;
+  const out = {};
+  [...t.querySelectorAll('tbody tr')].forEach(tr => {
+    const td = tr.querySelectorAll('td');
+    if (td.length < 2) return;
+    const name = td[0].textContent.trim();
+    const m = td[1].textContent.match(/(\d+\.\d)%/);
+    if (name && m) out[name] = parseFloat(m[1]);
+  });
+  return Object.keys(out).length >= 4 ? out : null;
+}
+
+function readAuditRows(doc) {
+  const t = [...doc.querySelectorAll('table')].find(x => /市場報酬/.test(x.textContent));
+  if (!t) return null;
+  const head = [...t.querySelectorAll('thead th')].map(e => e.textContent.trim());
+  const rows = [...t.querySelectorAll('tbody tr')].map(tr => [...tr.querySelectorAll('td')].map(e => e.textContent.trim()));
+  return { head, rows };
+}
+
+const num = s => { const m = String(s).replace(/,/g, '').match(/-?\d+(\.\d+)?/); return m ? parseFloat(m[0]) : null; };
+
+/* ---------- B · 開得起來嗎 -------------------------------------------- */
+
+async function checkBoot() {
+  const cRender = addCase('#sec-boot', 'B1 掛載得起來，而且沒有 JS 例外');
+  const cRates = addCase('#sec-boot', 'B2 預設情境的四策略存活率');
+
+  const r = await boot(null, '預設');
+  const nodes = r.doc && r.doc.body ? r.doc.body.querySelectorAll('*').length : 0;
+
+  if (r.timedOut) {
+    cRender.set('fail', '等了 90 秒還沒把模擬跑完。分頁是不是切到背景了？背景分頁會被節流。\n目前節點數 ' + nodes + (r.errors.length ? '\n攔到的錯誤：\n' + r.errors.join('\n') : ''));
+    cRates.set('fail', '前一項逾時，無法讀取。');
+    return r;
+  }
+  if (nodes < 400) {
+    cRender.set('fail', '只掛載出 ' + nodes + ' 個節點——這是白畫面。\n' + (r.errors.join('\n') || '（沒攔到錯誤訊息，可能是 render 期間就丟例外）'));
+  } else if (r.errors.length) {
+    cRender.set('fail', '畫面出來了（' + nodes + ' 節點）但有 ' + r.errors.length + ' 個 JS 錯誤：\n' + r.errors.join('\n'));
+  } else {
+    cRender.set('pass', nodes + ' 個節點，零 JS 錯誤。');
+  }
+
+  const rates = readRates(r.doc);
+  if (!rates) { cRates.set('fail', '讀不到結算表。'); return r; }
+  const diff = [];
+  Object.entries(SENTINEL_RATES).forEach(([k, want]) => {
+    const got = rates[k];
+    if (got == null) diff.push(k + '：讀不到這一列');
+    else if (Math.abs(got - want) > 0.05) diff.push(k + '：期望 ' + want + '%，實際 ' + got + '%');
+  });
+  diff.length
+    ? cRates.set('fail', '引擎行為變了：\n' + diff.join('\n') + '\n\n如果這是你刻意改的，請一併更新這支檔案最上面的 SENTINEL_RATES，並在 commit 訊息裡寫清楚為什麼。')
+    : cRates.set('pass', Object.entries(rates).map(([k, v]) => k + ' ' + v + '%').join('　'));
+  return r;
+}
+
+/* ---------- C · 情境不變式 -------------------------------------------- */
+
+/* C1 稽核表逐列收支平衡。
+   這是整份檢查裡最有價值的一項，因為它不依賴任何魔術數字：
+     期末淨值 =（前期淨值 − 實領生活費 + 年金流入 − 大額支出）×（1 + 市場報酬）
+   只要引擎有任何一筆錢沒有出現在表上（v7.81 就發生過大額支出憑空蒸發），
+   這條等式立刻破。 */
+async function checkAuditReconcile() {
+  const c = addCase('#sec-inv', 'C1 深度稽核表逐列收支平衡（開年金＋長照）');
+  const r = await boot({
+    tw: true, se: 12345,
+    ts: [{ k: 'laborIns', e: true, m: 'monthly', a: 19000, c: 65, l: true, g: 'inflation', r: 0 },
+         { k: 'laborPen', e: true, m: 'monthly', a: 18000, c: 65, l: false, x: 85, g: 'fixed', r: 3 }],
+    be: [{ k: 'ltc', e: true, a: 1000000, s: 80, x: 95 }]
+  }, 'C1 稽核表');
+  if (r.timedOut) return c.set('fail', '逾時，沒跑完。');
+
+  const tabs = [...r.doc.querySelectorAll('button')].filter(b => b.textContent.trim() === '深度稽核');
+  if (!tabs.length) return c.set('fail', '找不到「深度稽核」分頁鈕。');
+  tabs[0].click();
+  await sleep(900);
+
+  const a = readAuditRows(r.doc);
+  if (!a || !a.rows.length) return c.set('fail', '稽核表沒有資料列。');
+
+  const col = name => a.head.findIndex(h => h.indexOf(name) >= 0);
+  const iRet = col('市場報酬'), iPen = col('年金流入'), iExp = col('大額支出'), iW = col('實領生活費'), iNW = col('期末淨值');
+  if (iRet < 0 || iW < 0 || iNW < 0) return c.set('fail', '欄位對不上，表頭是：' + a.head.join(' | '));
+  if (iPen < 0 || iExp < 0) {
+    return c.set('fail', '這條路徑有年金與長照支出，稽核表卻沒有「年金流入」「大額支出」兩欄——\n那表示表上的數字加不回期末淨值，使用者無法驗算。表頭：' + a.head.join(' | '));
+  }
+
+  const cap = 2000; // 預設初始資產（萬）
+  let prev = cap;
+  const bad = [];
+  a.rows.forEach((row, i) => {
+    const ret = num(row[iRet]) / 100;
+    const pen = row[iPen] === '—' ? 0 : Math.abs(num(row[iPen]));
+    const exp = row[iExp] === '—' ? 0 : Math.abs(num(row[iExp]));
+    const w = num(row[iW]);
+    const nw = num(row[iNW]);
+    if ([ret, w, nw].some(v => v == null || isNaN(v))) { bad.push('第 ' + (i + 1) + ' 年：欄位讀不出數字'); prev = nw; return; }
+    const expect = (prev - w + pen - exp) * (1 + ret);
+    const resid = expect - nw;
+    /* 表上每個數字都四捨五入到「萬」，四個數字各 ±0.5、再乘上 (1+r) → 容許 3 萬或 0.2% */
+    const tol = Math.max(3, Math.abs(nw) * 0.002);
+    if (Math.abs(resid) > tol) {
+      bad.push('第 ' + (i + 1) + ' 年：(' + prev.toLocaleString() + ' − ' + w.toLocaleString() + ' + ' + pen.toLocaleString() + ' − ' + exp.toLocaleString() + ') × ' + (1 + ret).toFixed(3) + ' = ' + Math.round(expect).toLocaleString() + '，表上寫 ' + nw.toLocaleString() + '（差 ' + Math.round(resid).toLocaleString() + ' 萬）');
+    }
+    prev = nw;
+  });
+  bad.length
+    ? c.set('fail', a.rows.length + ' 列裡有 ' + bad.length + ' 列對不平——有錢沒出現在表上：\n' + bad.slice(0, 6).join('\n') + (bad.length > 6 ? '\n…（其餘 ' + (bad.length - 6) + ' 列略）' : ''))
+    : c.set('pass', a.rows.length + ' 列全部平衡（含年金流入與長照支出）。');
+}
+
+/* C2 需求試算的月金流必須等於引擎在第 0 年真的發出去的錢。
+   退休晚於請領時，引擎發的是「已經成長過」的金額；這張卡先前直接加原始金額，
+   於是同一張卡的兩個數字互相矛盾。 */
+async function checkNeedsCardIndexation() {
+  const c = addCase('#sec-inv', 'C2 需求試算的月金流＝引擎第 0 年實際發放額');
+  const r = await boot({
+    tw: true, ra: 70, inf: 3,
+    ts: [{ k: 'laborIns', e: true, m: 'monthly', a: 19000, c: 65, l: true, g: 'inflation', r: 0 },
+         { k: 'laborPen', e: true, m: 'monthly', a: 18000, c: 65, l: false, x: 85, g: 'fixed', r: 3 }]
+  }, 'C2 退休前指數化');
+  if (r.timedOut) return c.set('fail', '逾時，沒跑完。');
+
+  const txt = r.doc.body.innerText;
+  const m = txt.match(/月年金淨金流[^\n]*\n\s*([\d,]+)\s*元\/月/);
+  if (!m) return c.set('fail', '讀不到「月年金淨金流」。');
+  const got = num(m[1]);
+
+  /* 引擎口徑手算：退休 70、請領 65 → 已經領了 5 年
+       勞保 隨通膨（半實質階梯）：1.03^5 = 1.15927 → 每累計 5% 跳一階 → floor(0.15927/0.05)=3 階
+                                → 係數 1.15 → 19,000 × 1.15 = 21,850
+       勞退 固定 3%：18,000 × 1.03^5 = 20,866.9 */
+  const cpi = Math.pow(1.03, 5);
+  const laborIns = 19000 * (1 + 0.05 * Math.floor((cpi - 1) / 0.05));
+  const laborPen = 18000 * cpi;
+  const want = Math.round(laborIns + laborPen);
+  const raw = 19000 + 18000;
+
+  if (Math.abs(got - want) <= 2) {
+    c.set('pass', got.toLocaleString() + ' 元/月，與引擎口徑手算 ' + want.toLocaleString() + ' 相符（勞保 ' + Math.round(laborIns).toLocaleString() + ' ＋ 勞退 ' + Math.round(laborPen).toLocaleString() + '）。');
+  } else if (Math.abs(got - raw) <= 2) {
+    c.set('fail', '顯示 ' + got.toLocaleString() + ' 元/月，這是「使用者填的原始金額」直接相加。\n引擎在第 0 年實際發的是成長過的 ' + want.toLocaleString() + ' 元/月——同一張卡的「建議應備退休金」用的是後者，兩個數字互相矛盾。');
+  } else {
+    c.set('fail', '顯示 ' + got.toLocaleString() + ' 元/月，既不是原始加總 ' + raw.toLocaleString() + ' 也不是引擎口徑 ' + want.toLocaleString() + '。口徑可能又換了一種。');
+  }
+}
+
+/* C3 純歷史回測不得偷讀那支已被停用的通膨滑桿。
+   做法：把滑桿殘留在 8%、切到純歷史，年金現值應該貼近「假設 3%」那一組，
+   而不是「假設 8%」那一組。 */
+async function checkHistIgnoresInflSlider() {
+  const c = addCase('#sec-inv', 'C3 純歷史回測不讀已停用的通膨滑桿');
+  const src = { tw: true, ra: 75, dr: 2,
+    ts: [{ k: 'laborIns', e: true, m: 'monthly', a: 19000, c: 60, l: true, g: 'inflation', r: 0 },
+         { k: 'laborPen', e: true, m: 'monthly', a: 18000, c: 65, l: false, x: 85, g: 'fixed', r: 3 }] };
+  const pv = doc => {
+    const m = doc.body.innerText.match(/年金現值\s*([\d,]+)\s*萬/);
+    return m ? num(m[1]) : null;
+  };
+
+  const a = await boot(Object.assign({}, src, { inf: 3, mm: 'sim' }), 'C3 假設 3%');
+  if (a.timedOut) return c.set('fail', '逾時（假設 3% 那一組）。');
+  const pv3 = pv(a.doc);
+
+  const b = await boot(Object.assign({}, src, { inf: 8, mm: 'sim' }), 'C3 假設 8%');
+  if (b.timedOut) return c.set('fail', '逾時（假設 8% 那一組）。');
+  const pv8 = pv(b.doc);
+
+  const h = await boot(Object.assign({}, src, { inf: 8, mm: 'hist' }), 'C3 純歷史（滑桿殘留 8%）');
+  if (h.timedOut) return c.set('fail', '逾時（純歷史那一組）。');
+  const pvH = pv(h.doc);
+
+  if ([pv3, pv8, pvH].some(v => v == null)) return c.set('fail', '有一組讀不到「年金現值」：3%=' + pv3 + '、8%=' + pv8 + '、hist=' + pvH);
+  if (Math.abs(pv8 - pv3) < Math.max(20, pv3 * 0.05)) {
+    return c.set('warn', '假設 3% 與 8% 的年金現值差太小（' + pv3 + ' vs ' + pv8 + '），這個情境失去鑑別力，請換一組參數。');
+  }
+  const nearHist = Math.abs(pvH - pv3), nearSlider = Math.abs(pvH - pv8);
+  nearHist < nearSlider
+    ? c.set('pass', '純歷史 ' + pvH.toLocaleString() + ' 萬，貼近「假設 3%」的 ' + pv3.toLocaleString() + ' 萬（歷史平均通膨約 3.02%），而非滑桿殘留值 8% 的 ' + pv8.toLocaleString() + ' 萬。')
+    : c.set('fail', '純歷史 ' + pvH.toLocaleString() + ' 萬，貼近滑桿殘留的 8%（' + pv8.toLocaleString() + ' 萬）而不是歷史平均（' + pv3.toLocaleString() + ' 萬）。\n這個模式宣稱「通膨全部來自歷史」、滑桿也停用並標著「歷史決定」，卻仍在讀它。');
+}
+
+/* C4 比較卡在「一次領那一臂拿不到錢」的設定下必須拒絕比較。
+   引擎的一次領只在請領年齡不早於退休年齡時才注入；否則那一臂是 0 元，
+   任何勝負標示都是假的。 */
+async function checkCompareGuard() {
+  const c = addCase('#sec-inv', 'C4 一次領拿不到錢時，比較卡拒絕比較');
+  const r = await boot({
+    tw: true, ra: 70, sc: true,
+    ts: [{ k: 'laborPen', e: true, m: 'monthly', a: 18000, c: 65, l: false, x: 85, g: 'fixed', r: 3 }]
+  }, 'C4 請領早於退休');
+  if (r.timedOut) return c.set('fail', '逾時，沒跑完。');
+
+  const txt = r.doc.body.innerText;
+  const i = txt.indexOf('月領 ⇄ 一次領');
+  if (i < 0) return c.set('fail', '找不到比較卡。');
+  const seg = txt.slice(i, i + 400);
+  if (/無法做公平比較|早於退休年齡/.test(seg)) {
+    c.set('pass', '卡片已停用並說明原因。');
+  } else if (/於請領年整筆注入投組/.test(seg)) {
+    c.set('fail', '卡片仍宣稱「於請領年整筆注入投組」並照常比較，但引擎在 claimAge < retireAge 時一毛都不會注入——\n一次領那一臂輸掉的原因是根本沒拿到錢，不是策略差異。');
+  } else {
+    c.set('warn', '卡片內容不是預期的兩種之一，請人看一眼：\n' + seg.slice(0, 200));
+  }
+}
+
+/* C5 龍捲風圖：算得完、不當機，而且純歷史下不出現引擎不讀的死桿。
+   這一項專門守 v7.81 那次「按下按鈕整棵 React 樹卸載成白畫面」的 TDZ。 */
+async function checkTornado() {
+  const c = addCase('#sec-inv', 'C5 龍捲風算得完，純歷史下不列死桿');
+  const r = await boot({ mm: 'hist' }, 'C5 龍捲風（純歷史）', 120000);
+  if (r.timedOut) return c.set('fail', '逾時，沒跑完。');
+
+  /* 只看龍捲風那張卡自己的文字。先前用「從標題往後切 300 字」，會被隔壁區塊的
+     文案污染，判成假失敗。 */
+  const cardOf = doc => {
+    const h = [...doc.querySelectorAll('h3')].find(x => x.textContent.indexOf('敏感度龍捲風圖') >= 0);
+    return h ? h.closest('div.bg-white') || h.parentElement.parentElement : null;
+  };
+  const card0 = cardOf(r.doc);
+  if (!card0) return c.set('fail', '找不到龍捲風卡片。');
+
+  const before = r.doc.body.querySelectorAll('*').length;
+  const btn = [...r.doc.querySelectorAll('button')].find(b => b.textContent.trim() === '計算龍捲風圖');
+  if (!btn) return c.set('fail', '找不到「計算龍捲風圖」按鈕。');
+  btn.click();
+
+  const t0 = Date.now();
+  let done = false;
+  while (Date.now() - t0 < 120000) {
+    await sleep(600);
+    const now = r.doc.body.querySelectorAll('*').length;
+    if (now < 400) {
+      return c.set('fail', '按下去之後整頁塌了（節點數從 ' + before + ' 掉到 ' + now + '）。\n' + ((r.win.__ERRS || []).join('\n') || '（沒攔到錯誤）'));
+    }
+    const card = cardOf(r.doc);
+    if (card && /基準/.test(card.innerText) && !/計算中/.test(card.innerText)) { done = true; break; }
+  }
+  if (!done) return c.set('fail', '等了 120 秒還沒算完。');
+
+  const errs = r.win.__ERRS || [];
+  if (errs.length) return c.set('fail', '算完了但丟出 ' + errs.length + ' 個錯誤：\n' + errs.join('\n'));
+
+  /* 變因清單在「變因（勾選比較）」與「模型」之間 */
+  const cardTxt = cardOf(r.doc).innerText;
+  const s0 = cardTxt.indexOf('變因');
+  const s1 = cardTxt.indexOf('模型', s0 + 1);
+  const levers = cardTxt.slice(s0, s1 > s0 ? s1 : s0 + 400);
+  const dead = ['投組報酬', '投組波動', '模擬年限', '通膨'].filter(k => levers.indexOf(k) >= 0);
+  dead.length
+    ? c.set('fail', '純歷史回測下這幾根桿子引擎根本不讀，卻仍列在變因裡：' + dead.join('、') +
+        '\n勾了它們會白跑兩次完整回測，兩側必定同值。\n變因列實際內容：' + levers.replace(/\n/g, ' ').slice(0, 200))
+    : c.set('pass', '算完、零錯誤，且報酬／波動／年限／通膨四根死桿都已隱藏。');
+}
+
+/* ---------- 主流程 ----------------------------------------------------- */
+
+async function runAll() {
+  $('#run').disabled = true;
+  $('#copy').disabled = true;
+  results.length = 0;
+  ['#sec-static', '#sec-boot', '#sec-inv'].forEach(id => {
+    const s = $(id);
+    [...s.querySelectorAll('.case')].forEach(e => e.remove());
+  });
+  renderTally();
+
+  progress('讀取 ' + TARGET + ' …');
+  try {
+    const res = await fetch(TARGET + '?t=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    srcText = await res.text();
+  } catch (e) {
+    const c = addCase('#sec-static', '讀取 ' + TARGET);
+    c.set('fail', '讀不到檔案：' + e.message + '\n請確認這支檔案與 index.html 放在同一層，而且是用 http:// 開啟（file:// 會被瀏覽器擋下 fetch）。');
+    $('#run').disabled = false;
+    return;
+  }
+
+  checkParse();
+  checkCommentSwallow();
+  checkVersionStamps();
+  checkChangelogTally();
+  checkNoDupConstants();
+
+  await checkBoot();
+  await checkAuditReconcile();
+  await checkNeedsCardIndexation();
+  await checkHistIgnoresInflSlider();
+  await checkCompareGuard();
+  await checkTornado();
+
+  $('#stage').innerHTML = '';
+  progress('');
+  $('#run').disabled = false;
+  $('#copy').disabled = false;
+
+  const f = results.filter(r => r.status === 'fail').length;
+  document.title = (f ? '✗ ' + f + ' 項失敗' : '✓ 全部通過') + ' · 出貨前自我檢查';
+}
+
+$('#run').addEventListener('click', runAll);
+$('#copy').addEventListener('click', () => {
+  const txt = results.map(r =>
+    (r.status === 'pass' ? '[通過] ' : r.status === 'fail' ? '[失敗] ' : '[待人看] ') + r.name +
+    (r.why ? '\n    ' + r.why.replace(/\n/g, '\n    ') : '')
+  ).join('\n');
+  navigator.clipboard && navigator.clipboard.writeText(txt).then(
+    () => { $('#copy').textContent = '已複製'; setTimeout(() => { $('#copy').textContent = '複製結果'; }, 1500); },
+    () => window.prompt('複製以下內容', txt)
+  );
+});
+</script>
+</body>
+</html>
