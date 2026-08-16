@@ -833,8 +833,10 @@ const HIST_ASSETS = [{
   color: '#eab308'
 }];
 const APP_VERSION = 'v7.81'; // 版本單一來源：badge、document.title、出貨結構檢查皆以此為準
-const SPONSOR_URL_TW = 'https://p.ecpay.com.tw/A0E52B5'; // 綠界收款連結（台灣，ATM/刷卡依審核開通狀態）
-const SPONSOR_URL = 'https://ko-fi.com/3baofan'; // 贊助連結：填入你的 Ko-fi / Buy Me a Coffee / 綠界收款頁網址後，頁尾自動出現「請我喝杯咖啡」按鈕；留空則不顯示
+// 金流通道下架：綠界個人會員只收國內卡、Ko-fi 對台灣使用者門檻高，兩條路都不順。
+// 改成單純連到作者的粉專——想鼓勵就去按個讚，不必處理任何金流。
+// 只有頁尾那句「給作者一個鼓勵」在用。
+const AUTHOR_FB_URL = 'https://www.facebook.com/search/top?q=\u6307\u6578\u4E09\u5BF6\u98EF';
 // ===== 分享設定連結：URL hash 序列化（base64url JSON）與載入清洗 =====
 const cfgEncode = obj => { try { return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); } catch (e) { return ''; } };
 const cfgDecode = s => { try { s = String(s).replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return JSON.parse(decodeURIComponent(escape(atob(s)))); } catch (e) { return null; } };
@@ -2298,6 +2300,14 @@ const App = () => {
             '【中】停用控制項一律說明原因：波動滑桿分成「歷史決定」「由歷史序列決定」「由資產假設推導」三種；「失敗的定義」最後一顆勾選改為真正 disabled 並附說明（先前是靜默 return，點了完全沒反應）。',
             '【中】停用態的滑桿改為可換行版面，兩枚徽章不再擠掉標題、把中文壓成一字一行並溢出卡片。',
             '【中】結果表下方的三段警語移出寬度 560px 的橫向捲動容器，手機不必左右捲動才讀得到——而那正是最該被讀到的三段。',
+          ],
+        },
+        {
+          ver: '其他變更（非稽核項）',
+          changes: [
+            '頁尾的贊助按鈕下架，改成單純連到作者粉專（fb/指數三寶飯）。綠界個人會員自 2023 起只收國內卡、Ko-fi 對台灣使用者門檻又高，兩條金流都不順；與其擺兩顆按不下去的按鈕，不如讓想鼓勵的人去按個讚。連結與「Designed by」共用同一個常數。',
+            '頁尾原本上方還有一行「Designed by fb/指數三寶飯」，與新的「給作者一個鼓勵」連到同一個粉專、相距不到 40px；同一個連結出現兩次是多的，署名那行拿掉、留下有行動呼籲的那句。',
+            '頁尾高度收掉一截：原本是「宣告一行＋招呼一行＋一整排按鈕」三段，手機上兩顆按鈕還會各佔一行；現在兩行結束，招呼與連結併在同一行。順帶把招呼那行的 slate-400（白底 2.56:1）提到 slate-500，不要在剛修完低對比的地方又種一個回去。',
           ],
         },
         {
@@ -6311,20 +6321,10 @@ const App = () => {
   }, /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("b", null, tr('資料來自美國市場：', 'US market data: ')), tr('市場資料來自美國 1928–2025。這個工具的年金、餘命、單位都是台灣的，但報酬、波動、通膨不是——台股、台幣匯率與台灣的通膨路徑與美國有系統性落差，請把結果當成「以美國歷史為參照」的推演。', 'Market data is US, 1928–2025. The pensions, life tables and units here are Taiwanese, but the returns, volatility and inflation are not — Taiwan equities, the NTD and Taiwan\'s inflation path differ systematically from the US.')),
     (marketMode === 'sim' && riskEngine === 'gaussian') ? /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("b", null, tr('通膨不隨機：', 'Inflation is not random: ')), tr('目前的引擎把通膨當成固定值，每一條模擬人生都吃同一個數字、完全不隨機。通膨是退休規劃的頭號風險之一，要把它的不確定性納入，請切到「歷史抽樣」或「純歷史回測」。', 'This engine treats inflation as a fixed number — every simulated life gets the same value, with no randomness. To include inflation uncertainty, switch to Historical sampling or the Historical backtest.')) : null,
     /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("b", null, tr('別讀那個小數點：', 'Ignore the decimal: ')), tr((marketMode === 'hist' ? '純歷史回測只有數十個重疊世代、彼此高度相關，這個百分比是「歷史上真的出現過的起點」的比例，不是機率；小數點沒有統計意義。' : '小數點後那一位只反映「一萬條模擬的抽樣誤差」（約 ±0.3 個百分點）。') + '假設本身的不確定性大得多——光是把報酬從 7.6% 改成 6%，答案就掉十幾個百分點。請讀成「大約九成」而不是「90.8%」。', 'The decimal only reflects sampling error across 10,000 runs (about ±0.3pp). Uncertainty in the assumptions is far larger — changing the return from 7.6% to 6% alone moves the answer by more than ten points.'))))) : renderAuditTrail(), /*#__PURE__*/React.createElement("div", {
+    /* 這裡原本還有一行「Designed by fb/指數三寶飯」。頁尾的「給作者一個鼓勵」已經連到
+       同一個粉專、相距不到 40px，同一個連結出現兩次是多的，署名這行退場、留行動呼籲那句。 */
     className: "mt-8 mb-6 text-center"
-  }, /*#__PURE__*/React.createElement("a", {
-    href: "https://www.facebook.com/search/top?q=\u6307\u6578\u4E09\u5BF6\u98EF",
-    target: "_blank",
-    rel: "noopener noreferrer",
-    className: "inline-flex items-center gap-1.5 text-[10px] text-slate-300 hover:text-slate-500 transition-colors group"
-  }, /*#__PURE__*/React.createElement("span", null, "Designed by"), /*#__PURE__*/React.createElement("span", {
-    className: "font-bold underline decoration-slate-200 underline-offset-2 group-hover:decoration-slate-400"
-  }, "fb/\u6307\u6578\u4E09\u5BF6\u98EF"), /*#__PURE__*/React.createElement(ExternalLink, {
-    size: 10,
-    className: "opacity-60 group-hover:opacity-100"
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "mt-2"
-  }, /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowVersions(v => !v),
     className: "text-[10px] text-slate-300 hover:text-slate-500 transition-colors inline-flex items-center gap-1"
   }, tr('版本紀錄', 'Version history'), " ", /*#__PURE__*/React.createElement("span", {
@@ -6336,30 +6336,24 @@ const App = () => {
     v: v,
     lang: lang
   }))))))), /*#__PURE__*/React.createElement("footer", {
-    className: "mt-8 mb-2 text-center space-y-2 lg:shrink-0"
+    /* 高度收掉一截：先前是「一行宣告 ＋ 一行招呼 ＋ 一整排 py-2 按鈕」三段，
+       手機上兩顆按鈕還會各佔一行。現在兩行就結束，招呼與連結併在同一行。 */
+    className: "mt-6 mb-2 text-center space-y-1 lg:shrink-0"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-[11px] text-slate-600"
-  }, tr('本工具完全免費・無廣告・所有輸入資料只留在你的瀏覽器，不會上傳任何伺服器。', 'Free and ad-free; everything you enter stays in your browser.')), (SPONSOR_URL_TW || SPONSOR_URL) ? /*#__PURE__*/React.createElement("div", {
-    className: "space-y-2"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-slate-400"
-  }, tr('覺得有幫助？可以請作者喝杯咖啡：', 'Found it useful? Buy the author a coffee:')), /*#__PURE__*/React.createElement("div", {
-    className: "flex flex-wrap items-center justify-center gap-2"
-  }, SPONSOR_URL_TW ? /*#__PURE__*/React.createElement("a", {
-    href: SPONSOR_URL_TW,
+  }, tr('本工具完全免費・無廣告・所有輸入資料只留在你的瀏覽器，不會上傳任何伺服器。', 'Free and ad-free; everything you enter stays in your browser.')), /*#__PURE__*/React.createElement("div", {
+    /* slate-500 而非先前的 slate-400：後者在白底只有 2.56:1，v7.81 才剛把頁尾的
+       同型低對比修掉，不要在這裡又種一個回去。 */
+    className: "text-[10px] text-slate-500 leading-relaxed"
+  }, tr('覺得有幫助？可以給作者一個鼓勵：', 'Found it useful? Send the author some encouragement: '), /*#__PURE__*/React.createElement("a", {
+    href: AUTHOR_FB_URL,
     target: "_blank",
     rel: "noopener noreferrer",
-    className: "inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 text-xs font-bold transition-colors"
-  }, /*#__PURE__*/React.createElement(Coffee, {
-    size: 14
-  }), tr('請我喝杯咖啡（台灣）', 'Buy me a coffee (Taiwan)')) : null, SPONSOR_URL ? /*#__PURE__*/React.createElement("a", {
-    href: SPONSOR_URL,
-    target: "_blank",
-    rel: "noopener noreferrer",
-    className: "inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 text-xs font-bold transition-colors"
-  }, /*#__PURE__*/React.createElement(Coffee, {
-    size: 14
-  }), tr('請我喝杯咖啡（國際）', 'Buy me a coffee (International)')) : null)) : null));
+    className: "inline-flex items-center gap-1 font-bold text-slate-600 hover:text-slate-800 underline decoration-slate-300 underline-offset-2 transition-colors"
+  }, "fb/\u6307\u6578\u4E09\u5BF6\u98EF", /*#__PURE__*/React.createElement(ExternalLink, {
+    size: 10,
+    className: "opacity-60"
+  })))));
 };
 const root = createRoot(document.getElementById('root'));
 root.render(/*#__PURE__*/React.createElement(App, null));
